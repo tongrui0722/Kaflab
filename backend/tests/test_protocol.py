@@ -1,11 +1,29 @@
 import struct
 from app.protocol import codec
 from app.protocol import sasl
+from app.models import error_name
 
 
 def test_string_roundtrip():
     for s in ["", "test-topic", "hello kafka", None]:
         assert codec.dec_string(codec.enc_string(s), 0)[0] == s
+
+
+def test_metadata_v1_controller_and_broker_rack():
+    body = struct.pack(">i", 1)
+    body += struct.pack(">i", 2) + codec.enc_string("broker-2")
+    body += struct.pack(">i", 19092) + codec.enc_string("rack-a")
+    body += struct.pack(">i", 2)  # controller id
+    body += struct.pack(">i", 0)  # no topic metadata requested
+    metadata = codec.decode_metadata_v1(body)
+    assert metadata.controller_id == 2
+    assert metadata.brokers == [{"id": 2, "host": "broker-2", "port": 19092, "rack": "rack-a"}]
+
+
+def test_topic_create_error_codes_match_kafka_protocol():
+    assert error_name(20) == "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
+    assert error_name(36) == "TOPIC_ALREADY_EXISTS"
+    assert error_name(41) == "NOT_CONTROLLER"
 
 
 def test_build_request_frame_len():

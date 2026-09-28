@@ -6,7 +6,7 @@ import secrets
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from ..consumer.engine import ConsumerEngine
-from ..models import ConsumerFetchRequest, GroupDescribeRequest, ProduceRequest, TopicCreationRequest
+from ..models import ConsumerFetchRequest, GroupDescribeRequest, ProduceRequest, TopicCreationRequest, error_name
 from ..network.client import KafkaClient
 from ..models import SecurityConfig
 from ..network.tcp import TcpConnector, parse_hostport
@@ -368,19 +368,22 @@ async def cluster_topic_detail(cid: str, topic: str, request: Request):
         kc.close()
 
 
-def _cluster_client(cid: str, request: Request, label: str):
+def _cluster_client(cid: str, request: Request, label: str,
+                    broker: dict | None = None):
     """Topic 管理类操作的公用连接：返回 (cluster, KafkaClient)。"""
     import uuid as _u
     c = request.app.state.clusters.get(cid)
     if not c:
         raise HTTPException(404, "cluster not found")
-    host, port = parse_hostport(c.bootstrap)
+    host, port = ((str(broker["host"]), int(broker["port"]))
+                  if broker else parse_hostport(c.bootstrap))
     sec = SecurityConfig(securityProtocol=c.securityProtocol,  # type: ignore[arg-type]
                          saslMechanism=c.saslMechanism,  # type: ignore[arg-type]
                          saslUsername=c.saslUsername, saslPassword=c.saslPassword)
     tid = f"tr-{_u.uuid4().hex[:8]}"
     kc = KafkaClient(request.app.state.traces, f"sess-{label}", tid, "kafka-sim-01",
-                     8000, host, port, sec)
+                     8000, host, port, sec,
+                     broker_id=(broker.get("id") if broker else None))
     return c, kc
 
 
@@ -396,9 +399,51 @@ async def _ensure_admin_api(kc: KafkaClient, api_key: int, api_name: str) -> int
     return supported[api_key][1]
 
 
+async def _topic_cluster_metadata(cid: str, request: Request, label: str):
+    """通过纳管 Cluster 的认证连接读取 Broker 列表及当前 Controller。"""
+    _, probe = _cluster_client(cid, request, label)
+    try:
+        await probe.connect(0, label=label)
+        metadata, _, _ = await probe.call(
+            3, "Metadata", 1, codec.encode_metadata_v0([]), 1, "metadata",
+            extra_req={"topics": "ALL", "controllerLookup": True},
+            decode=codec.decode_metadata_v1)
+        return metadata
+    finally:
+        probe.close()
+
+
+async def _send_create_topic(cid: str, request: Request, broker: dict,
+                             body: TopicCreationRequest, attempt: int):
+    """一次性向指定 Broker 发送创建请求；不会重试传输异常或模糊结果。"""
+    _, kc = _cluster_client(cid, request, f"topic-create-{attempt}", broker)
+    try:
+        await kc.connect(1, label=f"topic-create-controller-{attempt}")
+        return await kc.call(
+            19, "CreateTopics", 0,
+            codec.encode_create_topics_v0([(
+                body.name, body.partitions, body.replicationFactor, body.configs)]),
+            3, "create-topics",
+            extra_req={"topic": body.name, "partitions": body.partitions,
+                       "replicationFactor": body.replicationFactor,
+                       "configs": body.configs, "version": 0,
+                       "controllerBrokerId": broker["id"], "attempt": attempt},
+            topic=body.name, decode=codec.decode_create_topics_v0)
+    finally:
+        kc.close()
+
+
+def _controller_broker(metadata) -> dict:
+    controller_id = metadata.controller_id
+    broker = next((b for b in metadata.brokers if b.get("id") == controller_id), None)
+    if controller_id is None or controller_id < 0 or broker is None:
+        raise HTTPException(503, "Kafka 集群暂时无法确定当前 Controller，请稍后重试")
+    return broker
+
+
 @router.post("/api/clusters/{cid}/topics", status_code=201)
 async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Request):
-    """通过当前纳管 Cluster 的认证连接发送一次 CreateTopics 请求并等待 Broker 确认。"""
+    """复用当前 Cluster 认证，路由至 Kafka Controller 并等待 CreateTopics 响应。"""
     _need_lab(request)
     import logging
     import re
@@ -408,63 +453,56 @@ async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Re
             or not re.fullmatch(r"[a-zA-Z0-9._-]+", name)):
         raise HTTPException(400, "Topic 名称非法：只能包含字母、数字、点、下划线和连字符，长度为 1–249")
 
-    _, kc = _cluster_client(cid, request, "topic-create")
+    log = logging.getLogger("kcl.topic")
     try:
-        await kc.connect(1, label="topic-create")
-
-        # 后端以当前 Cluster 的 Metadata 作强制 RF 校验，前端 Broker 数只用于提示。
-        meta_dec, _, _ = await kc.call(
-            3, "Metadata", 0, codec.encode_metadata_v0([]), 2, "metadata",
-            extra_req={"topics": "ALL", "reason": "topic-create-rf-validation"},
-            decode=codec.decode_metadata_v0)
-        from ..producer.shared import _metadata_dict
-        broker_count = len(_metadata_dict(meta_dec).get("brokers", []))
+        metadata = await _topic_cluster_metadata(cid, request, "topic-create-metadata")
+        broker_count = len(metadata.brokers)
         if broker_count < 1:
-            raise HTTPException(502, "无法从当前 Kafka 集群读取 Broker 信息，未发送创建请求")
+            raise HTTPException(503, "无法从当前 Kafka 集群读取 Broker 信息，未发送创建请求")
         if body.replicationFactor > broker_count:
             raise HTTPException(400, f"副本数超过当前 Kafka 集群可用 Broker 数量（{broker_count}）")
 
-        # 固定使用经典 CreateTopics v0 格式，避免在不确定响应后换版本重试，
-        # 造成“Broker 已创建但客户端重试得到 TopicExists”的假失败。
-        decoded, frame, raw = await kc.call(
-            19, "CreateTopics", 0,
-            codec.encode_create_topics_v0([(
-                name, body.partitions, body.replicationFactor, body.configs)]),
-            3, "create-topics",
-            extra_req={"topic": name, "partitions": body.partitions,
-                       "replicationFactor": body.replicationFactor,
-                       "configs": body.configs, "version": 0},
-            topic=name, decode=codec.decode_create_topics_v0)
+        broker = _controller_broker(metadata)
+        decoded, frame, raw = await _send_create_topic(cid, request, broker, body, 1)
         result = next((t for t in decoded.get("topics", [])
                        if t.get("topic") == name), None)
+
+        # Kafka 明确返回 NOT_CONTROLLER (41) 表示该请求没有被执行；
+        # 刷新 Controller 后只重发一次。其他错误/超时不重试，避免重复创建。
+        if result and result.get("errorCode") == 41:
+            log.warning("Kafka Controller changed while creating topic %s; refreshing metadata", name)
+            metadata = await _topic_cluster_metadata(cid, request, "topic-create-controller-refresh")
+            broker = _controller_broker(metadata)
+            decoded, frame, raw = await _send_create_topic(cid, request, broker, body, 2)
+            result = next((t for t in decoded.get("topics", [])
+                           if t.get("topic") == name), None)
+
         if result is None or decoded.get("_end") != len(raw) - 4:
-            logging.getLogger("kcl.topic").error(
-                "CreateTopics response did not match request: topic=%s response=%s request=%s",
-                name, codec.hexdump(raw), codec.hexdump(frame))
+            log.error("CreateTopics response did not match request: topic=%s response=%s request=%s",
+                      name, codec.hexdump(raw), codec.hexdump(frame))
             raise HTTPException(502, "Kafka 创建结果响应无法确认，请刷新 Topic 列表确认是否已创建")
 
         code = result.get("errorCode")
         if code != 0:
-            hint = _topic_err_hint(code)
-            logging.getLogger("kcl.topic").error(
-                "Kafka CreateTopics rejected request: topic=%s errorCode=%s errorName=%s message=%s",
-                name, code, result.get("errorName"), result.get("errorMessage"))
-            status = 409 if code == 17 else 403 if code in (29, 31) else 400 if code in (38, 39, 40) else 504 if code == 7 else 502
-            raise HTTPException(status, hint)
+            log.error("Kafka CreateTopics rejected request: topic=%s errorCode=%s errorName=%s message=%s",
+                      name, code, error_name(code), result.get("errorMessage"))
+            status = (409 if code == 36 else 403 if code in (29, 31)
+                      else 400 if code in (38, 39, 40) else 504 if code == 7
+                      else 503 if code == 41 else 502)
+            raise HTTPException(status, _topic_err_hint(code))
 
         return {"name": name, "partitions": body.partitions,
                 "replicationFactor": body.replicationFactor,
-                "configs": body.configs, "apiVersion": 0}
+                "configs": body.configs, "apiVersion": 0,
+                "controllerBrokerId": broker["id"]}
     except HTTPException:
         raise
     except (TimeoutError, asyncio.TimeoutError) as e:
-        logging.getLogger("kcl.topic").exception("Kafka CreateTopics request timed out for %s", name)
+        log.exception("Kafka CreateTopics request timed out for %s", name)
         raise HTTPException(504, "Kafka Topic 创建请求超时，请刷新 Topic 列表确认是否已创建") from e
     except Exception as e:  # noqa: BLE001
-        logging.getLogger("kcl.topic").exception("Kafka CreateTopics failed for %s", name)
+        log.exception("Kafka CreateTopics failed for %s", name)
         raise HTTPException(502, f"Kafka Topic 创建请求失败：{type(e).__name__}；请刷新列表确认结果") from e
-    finally:
-        kc.close()
 
 
 @router.delete("/api/clusters/{cid}/topics/{topic}")
@@ -498,13 +536,16 @@ def _topic_err_hint(code: int) -> str:
     """将 Kafka CreateTopics 常见错误映射成用户可读信息。"""
     from ..models import error_name
     hints = {
-        17: "Topic 已存在，请修改 Topic 名称。",
+        17: "Topic 名称或格式无效，请检查 Topic 名称。",
+        20: "副本未能达到要求的同步状态（ISR），请检查 Kafka Broker 和副本健康状态。",
         29: "当前 Kafka 用户没有创建 Topic 的权限。",
         31: "当前 Kafka 用户没有在该集群创建 Topic 的权限。",
         38: "副本数超过当前 Kafka 集群可用 Broker 数量。",
         39: "Kafka 拒绝了无效的副本分配。",
         40: "Topic 配置无效，请检查配置项和值。",
         7: "Kafka Topic 创建请求超时，请检查集群状态并刷新 Topic 列表确认结果。",
+        36: "Topic 已存在，请修改 Topic 名称。",
+        41: "Kafka Controller 正在切换，刷新后重试仍未完成；请稍后重试。",
     }
     return hints.get(code, f"Kafka 拒绝创建 Topic：{error_name(code)}（{code}）")
 

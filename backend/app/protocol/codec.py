@@ -151,6 +151,7 @@ class TopicMeta:
 class MetadataResponse:
     brokers: List[dict]
     topics: List[TopicMeta]
+    controller_id: Optional[int] = None
 
 
 def decode_metadata_v0(buf: bytes) -> MetadataResponse:
@@ -190,6 +191,58 @@ def decode_metadata_v0(buf: bytes) -> MetadataResponse:
             parts.append(PartitionInfo(perr, pid, leader, replicas, isr))
         topics.append(TopicMeta(err, topic or "", parts))
     return MetadataResponse(brokers, topics)
+
+
+def decode_metadata_v1(buf: bytes) -> MetadataResponse:
+    """Metadata v1 adds the controller id and broker rack to the v0 response."""
+    off = 0
+    n, off = dec_array_count(buf, off)
+    if n < 0 or n > 10000:
+        raise ValueError(f"bad broker count {n}")
+    brokers = []
+    for _ in range(n):
+        (nid,) = struct.unpack_from(">i", buf, off)
+        off += 4
+        host, off = dec_string(buf, off)
+        (port,) = struct.unpack_from(">i", buf, off)
+        off += 4
+        rack, off = dec_string(buf, off)
+        brokers.append({"id": nid, "host": host, "port": port, "rack": rack})
+    (controller_id,) = struct.unpack_from(">i", buf, off)
+    off += 4
+    tn, off = dec_array_count(buf, off)
+    if tn < 0:
+        tn = 0
+    if tn > 100000:
+        raise ValueError(f"bad topic count {tn}")
+    topics: List[TopicMeta] = []
+    for _ in range(tn):
+        (err,) = struct.unpack_from(">h", buf, off)
+        off += 2
+        topic, off = dec_string(buf, off)
+        if off >= len(buf):
+            raise ValueError("truncated Metadata v1 internal flag")
+        off += 1  # is_internal
+        pn, off = dec_array_count(buf, off)
+        parts = []
+        for _ in range(max(pn, 0)):
+            (perr, pid, leader) = struct.unpack_from(">hii", buf, off)
+            off += 10
+            rn, off = dec_array_count(buf, off)
+            replicas = []
+            for _ in range(max(rn, 0)):
+                (replica,) = struct.unpack_from(">i", buf, off)
+                off += 4
+                replicas.append(replica)
+            isn, off = dec_array_count(buf, off)
+            isr = []
+            for _ in range(max(isn, 0)):
+                (replica,) = struct.unpack_from(">i", buf, off)
+                off += 4
+                isr.append(replica)
+            parts.append(PartitionInfo(perr, pid, leader, replicas, isr))
+        topics.append(TopicMeta(err, topic or "", parts))
+    return MetadataResponse(brokers, topics, controller_id)
 
 
 def _crc32c(data: bytes) -> int:
