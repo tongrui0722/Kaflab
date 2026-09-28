@@ -1106,33 +1106,43 @@ def decode_create_partitions_v0(buf: bytes) -> dict:
 
 
 def encode_alter_reassignments_v0(topic: str, assignment: dict, timeout_ms: int = 30000) -> bytes:
-    """assignment: {partition: [brokerIds]}。"""
-    parts = b""
+    """AlterPartitionReassignments v0 使用 flexible 编码；调用时还须 flexible=True。"""
+    partition_items = []
     for p in sorted(assignment):
-        parts += struct.pack(">i", int(p))
-        parts += struct.pack(">i", len(assignment[p]))
-        for b in assignment[p]:
-            parts += struct.pack(">i", int(b))
-    topics = enc_string(topic) + struct.pack(">i", len(assignment)) + parts
-    return struct.pack(">i", timeout_ms) + struct.pack(">i", 1) + topics
+        item = struct.pack(">i", int(p))
+        item += enc_compact_array([struct.pack(">i", int(b)) for b in assignment[p]])
+        item += enc_tagged_empty()
+        partition_items.append(item)
+    topic_item = enc_compact_string(topic) + enc_compact_array(partition_items)
+    topic_item += enc_tagged_empty()
+    return (struct.pack(">i", timeout_ms) + enc_compact_array([topic_item])
+            + enc_tagged_empty())
 
 
 def decode_alter_reassignments_v0(buf: bytes) -> dict:
-    # v0 response: throttle(4) + error(2) + [topics: {topic, partitions: [{index, errorCode, errorMessage?}]}]
-    (throttle,) = struct.unpack_from(">i", buf, 0)
-    (err,) = struct.unpack_from(">h", buf, 4)
-    off, out = 6, []
-    n, off = dec_array_count(buf, off)
+    """解码 AlterPartitionReassignments v0 flexible response。"""
+    off = skip_response_tags(buf, 0)
+    (throttle,) = struct.unpack_from(">i", buf, off)
+    off += 4
+    (err,) = struct.unpack_from(">h", buf, off)
+    off += 2
+    message, off = dec_compact_string(buf, off)
+    n, off = dec_compact_len(buf, off)
+    out = []
     for _ in range(max(n, 0)):
-        t, off = dec_string(buf, off)
-        pn, off = dec_array_count(buf, off)
+        t, off = dec_compact_string(buf, off)
+        pn, off = dec_compact_len(buf, off)
         ps = []
         for _ in range(max(pn, 0)):
             (idx,) = struct.unpack_from(">i", buf, off)
             off += 4
             (perr,) = struct.unpack_from(">h", buf, off)
             off += 2
-            msg, off = dec_string(buf, off)
-            ps.append({"partition": idx, "errorCode": perr, "errorMessage": msg})
+            pmsg, off = dec_compact_string(buf, off)
+            off = skip_response_tags(buf, off)
+            ps.append({"partition": idx, "errorCode": perr, "errorMessage": pmsg})
+        off = skip_response_tags(buf, off)
         out.append({"topic": t, "partitions": ps})
-    return {"throttleMs": throttle, "errorCode": err, "topics": out}
+    off = skip_response_tags(buf, off)
+    return {"throttleMs": throttle, "errorCode": err,
+            "errorMessage": message, "topics": out, "_end": off}

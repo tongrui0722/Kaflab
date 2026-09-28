@@ -34,6 +34,29 @@ def test_build_request_frame_len():
     assert (api, ver, corr) == (3, 0, 7)
 
 
+def test_alter_reassignments_v0_uses_flexible_encoding():
+    body = codec.encode_alter_reassignments_v0("t", {2: [1, 3]})
+    frame = codec.build_request(45, 0, 1, "test", body, flexible=True)
+    assert frame[-1] == 0  # root tagged fields buffer
+    # api header carries flexible header v2's empty tagged fields buffer.
+    assert frame[4 + 2 + 2 + 4 + 2 + len("test")] == 0
+
+
+def test_decode_alter_reassignments_v0_flexible_response():
+    body = b"\x00"  # response header v1 tags
+    body += struct.pack(">ih", 0, 0)  # throttle, top-level error
+    body += b"\x00"  # null compact error message
+    body += b"\x02"  # one topic
+    body += codec.enc_compact_string("t") + b"\x02"  # one partition
+    body += struct.pack(">ih", 2, 0) + b"\x00\x00"  # index, error, null msg, tags
+    body += b"\x00\x00"  # topic and root tags
+    decoded = codec.decode_alter_reassignments_v0(body)
+    assert decoded["errorCode"] == 0
+    assert decoded["topics"][0]["topic"] == "t"
+    assert decoded["topics"][0]["partitions"][0]["partition"] == 2
+    assert decoded["_end"] == len(body)
+
+
 def test_decode_metadata_v0_single():
     raw = struct.pack(">i", 1) + struct.pack(">i", 101) + codec.enc_string("h") + struct.pack(">i", 9092)
     raw += struct.pack(">i", 1)

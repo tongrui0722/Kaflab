@@ -558,26 +558,34 @@ async def cluster_topic_expand(cid: str, topic: str, body: dict, request: Reques
     count = int(body.get("count", 0))
     if not 1 <= count <= 1000:
         raise HTTPException(400, "目标分区数范围 1–1000（且只能比当前多）")
-    _, kc = _cluster_client(cid, request, "topic-expand")
     try:
-        await kc.connect(1, label="topic-expand")
-        await _ensure_admin_api(kc, 37, "CreatePartitions")
-        dec, _, _ = await kc.call(37, "CreatePartitions", 0,
-                                  codec.encode_create_partitions_v0(topic, count),
-                                  3, "create-partitions",
-                                  extra_req={"topic": topic, "count": count},
-                                  topic=topic, decode=codec.decode_create_partitions_v0)
-        r = (dec.get("results") or [{}])[0]
-        code = r.get("errorCode", -1)
+        for attempt in (1, 2):
+            metadata = await _topic_cluster_metadata(cid, request, f"topic-expand-metadata-{attempt}")
+            broker = _controller_broker(metadata)
+            _, kc = _cluster_client(cid, request, f"topic-expand-{attempt}", broker)
+            try:
+                await kc.connect(1, label=f"topic-expand-controller-{attempt}")
+                await _ensure_admin_api(kc, 37, "CreatePartitions")
+                dec, _, _ = await kc.call(
+                    37, "CreatePartitions", 0,
+                    codec.encode_create_partitions_v0(topic, count), 3, "create-partitions",
+                    extra_req={"topic": topic, "count": count,
+                               "controllerBrokerId": broker["id"], "attempt": attempt},
+                    topic=topic, decode=codec.decode_create_partitions_v0)
+            finally:
+                kc.close()
+            r = next((item for item in dec.get("results", [])
+                      if item.get("topic") == topic), None)
+            code = (r or {}).get("errorCode", -1)
+            if code != 41 or attempt == 2:
+                break
         if code != 0:
-            raise HTTPException(502, f"扩容失败：{error_name(code)}（{code}）{r.get('errorMessage') or ''}")
+            raise HTTPException(502, f"扩容失败：{error_name(code)}（{code}）{(r or {}).get('errorMessage') or ''}")
         return {"topic": topic, "partitions": count}
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"expand partitions failed: {type(e).__name__}: {e}")
-    finally:
-        kc.close()
 
 
 @router.post("/api/clusters/{cid}/topics/{topic}/reassignment")
@@ -589,34 +597,47 @@ async def cluster_topic_reassign(cid: str, topic: str, body: dict, request: Requ
     rf = int(body.get("replication", 0))
     if not 1 <= rf <= 10:
         raise HTTPException(400, "副本数范围 1–10")
-    _, kc = _cluster_client(cid, request, "topic-reassign")
     try:
-        await kc.connect(1, label="topic-reassign")
-        await _ensure_admin_api(kc, 45, "AlterPartitionReassignments")
-        meta_dec, _, _ = await kc.call(3, "Metadata", 0,
-                                       codec.encode_metadata_v0([topic]),
-                                       2, "metadata",
-                                       extra_req={"topics": [topic]},
-                                       topic=topic, decode=codec.decode_metadata_v0)
         from ..producer.shared import _metadata_dict
-        meta = _metadata_dict(meta_dec)
-        brokers = [b.get("id") for b in meta["brokers"] if b.get("id") is not None]
-        t = next((x for x in meta["topics"] if x["topic"] == topic), None)
-        if not t or not t.get("partitions"):
-            raise HTTPException(404, "topic 不存在")
-        if rf > len(brokers):
-            raise HTTPException(400, f"副本数 {rf} 超过 broker 数 {len(brokers)}")
-        assignment = {}
-        for i, p in enumerate(sorted(t["partitions"], key=lambda x: x["partition"])):
-            assignment[p["partition"]] = [brokers[(i + k) % len(brokers)] for k in range(rf)]
-        dec, _, _ = await kc.call(45, "AlterPartitionReassignments", 0,
-                                  codec.encode_alter_reassignments_v0(topic, assignment),
-                                  3, "alter-reassignments",
-                                  extra_req={"topic": topic, "replication": rf,
-                                             "assignment": {str(k): v for k, v in assignment.items()}},
-                                  topic=topic, decode=codec.decode_alter_reassignments_v0)
+        for attempt in (1, 2):
+            _, meta_client = _cluster_client(cid, request, f"topic-reassign-metadata-{attempt}")
+            try:
+                await meta_client.connect(1, label=f"topic-reassign-metadata-{attempt}")
+                meta_dec, _, _ = await meta_client.call(
+                    3, "Metadata", 1, codec.encode_metadata_v0([topic]), 2, "metadata",
+                    extra_req={"topics": [topic], "controllerLookup": True},
+                    topic=topic, decode=codec.decode_metadata_v1)
+            finally:
+                meta_client.close()
+            meta = _metadata_dict(meta_dec)
+            brokers = [b.get("id") for b in meta["brokers"] if b.get("id") is not None]
+            t = next((x for x in meta["topics"] if x["topic"] == topic), None)
+            if not t or not t.get("partitions"):
+                raise HTTPException(404, "topic 不存在")
+            if rf > len(brokers):
+                raise HTTPException(400, f"副本数 {rf} 超过 broker 数 {len(brokers)}")
+            assignment = {}
+            for i, p in enumerate(sorted(t["partitions"], key=lambda x: x["partition"])):
+                assignment[p["partition"]] = [brokers[(i + k) % len(brokers)] for k in range(rf)]
+            controller = _controller_broker(meta_dec)
+            _, kc = _cluster_client(cid, request, f"topic-reassign-{attempt}", controller)
+            try:
+                await kc.connect(1, label=f"topic-reassign-controller-{attempt}")
+                await _ensure_admin_api(kc, 45, "AlterPartitionReassignments")
+                dec, _, raw = await kc.call(
+                    45, "AlterPartitionReassignments", 0,
+                    codec.encode_alter_reassignments_v0(topic, assignment),
+                    3, "alter-reassignments",
+                    extra_req={"topic": topic, "replication": rf,
+                               "assignment": {str(k): v for k, v in assignment.items()},
+                               "controllerBrokerId": controller["id"], "attempt": attempt},
+                    topic=topic, decode=codec.decode_alter_reassignments_v0, flexible=True)
+            finally:
+                kc.close()
+            if dec.get("errorCode", 0) != 41 or attempt == 2:
+                break
         if dec.get("errorCode", 0) != 0:
-            raise HTTPException(502, f"提交失败：{error_name(dec['errorCode'])}（{dec['errorCode']}）")
+            raise HTTPException(502, f"提交失败：{error_name(dec['errorCode'])}（{dec['errorCode']}）{dec.get('errorMessage') or ''}")
         bad = [(p["partition"], p["errorCode"]) for tp in dec.get("topics", [])
                for p in tp.get("partitions", []) if p.get("errorCode", 0) != 0]
         if bad:
@@ -628,8 +649,6 @@ async def cluster_topic_reassign(cid: str, topic: str, body: dict, request: Requ
         raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"reassign failed: {type(e).__name__}: {e}")
-    finally:
-        kc.close()
 
 
 @router.get("/api/clusters/{cid}/groups")
