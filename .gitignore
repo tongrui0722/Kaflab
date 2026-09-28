@@ -1,0 +1,21 @@
+# Local Kafka credentials, sessions and raw protocol traces
+backend/clusters.json
+backend/sessions.json
+backend/app/users.json
+backend/traces/
+
+# Local runtimes and generated artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# User-local files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
