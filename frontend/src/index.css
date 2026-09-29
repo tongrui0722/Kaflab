@@ -56,6 +56,36 @@ body {
   border-radius: var(--radius);
   box-shadow: 0 12px 28px -22px rgba(0, 0, 0, 0.9);
 }
+.metric-card {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(16, 26, 46, 0.96), rgba(10, 15, 29, 0.98));
+  box-shadow: 0 12px 28px -22px rgba(0, 0, 0, 0.9);
+}
+.metric-card::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: "";
+  background: var(--metric-color, #64748b);
+  opacity: 0.85;
+}
+.metric-label {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.metric-sky { --metric-color: #38bdf8; }
+.metric-blue { --metric-color: #60a5fa; }
+.metric-emerald { --metric-color: #34d399; }
+.metric-amber { --metric-color: #fbbf24; }
+.metric-rose { --metric-color: #fb7185; }
+.metric-violet { --metric-color: #a78bfa; }
+.metric-slate { --metric-color: #64748b; }
 .card-t {
   display: flex;
   align-items: center;

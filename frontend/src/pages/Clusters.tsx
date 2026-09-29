@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { useConn, type ConnConfig } from "../conn";
 import { PageHeader } from "../components/bits";
 
@@ -16,13 +15,18 @@ const EMPTY: Draft = {
 };
 
 export function ClustersPage() {
-  const { clusters, activeId, select, save, remove, probe, health, loading } = useConn();
+  const { clusters, activeId, select, save, remove, probe, health, loading, refresh } = useConn();
   const [editing, setEditing] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [probing, setProbing] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const online = clusters.filter((c) => health[c.id]?.connected).length;
+  const offline = clusters.filter((c) => health[c.id]?.connected === false).length;
+  const visibleClusters = clusters.filter((c) =>
+    `${c.name} ${c.bootstrap} ${c.securityProtocol} ${c.saslMechanism}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   const submit = async () => {
     if (!editing || !editing.bootstrap.trim()) { setErr("bootstrap 不可为空"); return; }
@@ -53,9 +57,15 @@ export function ClustersPage() {
         right={
           <>
             <span className="badge mute">{clusters.length} 个集群</span>
-            <span className="badge ok">{online} 在线</span>
+            <span className={`badge ${offline ? "warn" : "ok"}`}>{online} 在线{offline ? ` · ${offline} 离线` : ""}</span>
+            <button onClick={() => {
+              setActionError(null);
+              void refresh().catch((e) => setActionError(e instanceof Error ? e.message : String(e)));
+            }} disabled={loading} className="btn btn-ghost btn-sm">
+              {loading ? "刷新中…" : "↻ 刷新"}
+            </button>
             <button
-              onClick={() => { setEditing({ ...EMPTY }); setErr(null); }}
+              onClick={() => { setEditing({ ...EMPTY }); setErr(null); setActionError(null); }}
               className="btn btn-primary btn-sm !min-h-[32px]">
               + 新增集群
             </button>
@@ -63,93 +73,117 @@ export function ClustersPage() {
         }
       />
 
-      {loading && <div className="card p-6 text-center text-[12px] text-slate-500">加载中…</div>}
+      {actionError && <div className="alert err mb-3">{actionError}</div>}
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-2.5">
+        <label className="sr-only" htmlFor="cluster-search">搜索集群</label>
+        <input id="cluster-search" value={query} onChange={(e) => setQuery(e.target.value)}
+          className="field min-w-[220px] flex-1 !h-[36px]" placeholder="搜索名称、地址或安全协议…" />
+        <span className="shrink-0 px-1 text-[11px] text-[var(--text-faint)]">
+          {query ? `${visibleClusters.length} / ${clusters.length} 个集群` : "按名称或地址筛选"}
+        </span>
+      </div>
+
+      {loading && clusters.length === 0 && <div className="card p-6 text-center text-[12px] text-slate-500">正在读取纳管集群…</div>}
 
       {!loading && clusters.length === 0 && (
-        <div className="card p-10 text-center">
-          <div className="text-[14px] font-semibold text-slate-200">还没有纳管任何集群</div>
-          <div className="mt-1 text-[12px] text-[var(--text-faint)]">点右上「新增集群」，填 bootstrap 即可接入。</div>
+        <div className="card flex flex-col items-center p-10 text-center">
+          <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-400/10 text-xl text-sky-300">▦</span>
+          <div className="text-[15px] font-semibold text-slate-100">还没有纳管集群</div>
+          <div className="mt-1 max-w-sm text-[12px] text-[var(--text-faint)]">添加 Bootstrap 地址后即可连接 Kafka，并在概览中查看集群状态。</div>
+          <button onClick={() => { setEditing({ ...EMPTY }); setErr(null); }} className="btn btn-primary btn-sm mt-4">+ 添加第一个集群</button>
         </div>
       )}
 
-      {/* 集群行：管理台式列表，一行一个，信息密度高 */}
-      <div className="space-y-2">
-        {clusters.map((c) => {
+      {/* 集群卡片：连接状态、运行指标和管理动作分层呈现 */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {visibleClusters.map((c) => {
           const h = health[c.id];
           const active = c.id === activeId;
-          const dot = h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
+          const status = probing === c.id ? "探测中" : h?.connected ? "在线" : h?.connected === false ? "离线" : "待检测";
+          const dot = probing === c.id ? "bg-sky-400" : h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
           return (
             <div
               key={c.id}
-              className={`card fade-up flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.3),0_12px_28px_-22px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
-              {/* 状态 + 名称 */}
-              <div className="flex min-w-[200px] flex-1 items-center gap-3">
-                <span className="relative flex h-2.5 w-2.5 shrink-0">
+              className={`card fade-up p-4 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
+              <div className="flex items-start gap-3">
+                <span className="relative mt-1 flex h-2.5 w-2.5 shrink-0">
                   {probing === c.id && <span className="absolute h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />}
                   <span className={`relative h-2.5 w-2.5 rounded-full ${dot}`} />
                 </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13.5px] font-bold text-slate-100">{c.name}</span>
-                    {active && <span className="badge run">当前</span>}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate text-[15px] font-bold text-slate-100">{c.name}</span>
+                    <span className={`badge ${probing === c.id ? "run" : h?.connected ? "ok" : h?.connected === false ? "err" : "mute"}`}>{status}</span>
+                    {active && <span className="badge run">当前集群</span>}
                   </div>
-                  <div className="mono mt-0.5 truncate text-[11px] text-[var(--text-faint)]">
-                    {c.bootstrap} · {c.id}
+                  <div className="mono mt-1.5 break-all text-[11.5px] text-slate-300">{c.bootstrap}</div>
+                  <div className="mt-0.5 text-[10.5px] text-[var(--text-faint)]">集群 ID：<span className="mono">{c.id}</span></div>
+                </div>
+                <span className="badge vio shrink-0">{c.securityProtocol}</span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">Brokers</div>
+                  <div className="mono mt-1 text-[15px] font-semibold text-slate-100">
+                    {h?.brokerCount ?? (probing === c.id ? "…" : "—")}
+                    <span className="ml-1 text-[10px] font-normal text-[var(--text-faint)]">nodes</span>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">Topics</div>
+                  <div className="mono mt-1 text-[15px] font-semibold text-slate-100">
+                    {h?.topicCount ?? (probing === c.id ? "…" : "—")}
                   </div>
                 </div>
               </div>
-              {/* 协议 + 指标 */}
-              <div className="flex items-center gap-2">
-                <span className="badge vio">{c.securityProtocol}</span>
-                {c.securityProtocol !== "PLAINTEXT" && (
-                  <span className="badge mute mono">{c.saslMechanism}</span>
-                )}
-              </div>
-              <div className="mono hidden min-w-[170px] text-right text-[11.5px] leading-relaxed text-[var(--text-faint)] md:block">
-                {h?.brokerCount != null ? (
-                  <>{h.brokerCount} brokers · {h.topicCount} topics</>
-                ) : h?.connected === false ? (
-                  <span className="text-rose-300/90">探测失败</span>
-                ) : (
-                  <span className="opacity-60">未探测</span>
-                )}
-              </div>
+
               {h?.error && (
-                <div className="mono w-full truncate text-[11px] text-rose-300/90" title={h.error}>
-                  {h.error.slice(0, 140)}
+                <div className="alert err mt-3 break-words" title={h.error}>
+                  探测失败：{h.error}
                 </div>
               )}
-              {/* 操作 */}
-              <div className="flex shrink-0 items-center gap-1.5">
-                {!active && (
-                  <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入</button>
-                )}
-                <button onClick={() => doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
-                  {probing === c.id ? "探测…" : "探测"}
+              {c.securityProtocol !== "PLAINTEXT" && (
+                <div className="mt-3 text-[11px] text-[var(--text-faint)]">SASL 机制：<span className="mono text-slate-300">{c.saslMechanism}</span></div>
+              )}
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] pt-3">
+                {!active && <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入集群</button>}
+                <button onClick={() => void doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
+                  {probing === c.id ? "探测中…" : "重新探测"}
                 </button>
-                <button onClick={() => { setEditing({ ...c }); setErr(null); }} className="btn btn-ghost btn-sm">编辑</button>
+                <button onClick={() => { setEditing({ ...c }); setErr(null); setActionError(null); }} className="btn btn-ghost btn-sm">编辑配置</button>
                 <button
                   onClick={() => {
                     select(c.id);
                     window.location.hash = "#/topics";
                   }}
                   className="btn btn-ghost btn-sm">
-                  Topics
+                  浏览 Topics
                 </button>
                 <button
                   onClick={async () => {
                     const ok = window.confirm("删除集群 " + c.name + "？");
                     if (!ok) return;
-                    await remove(c.id);
+                    setActionError(null);
+                    try { await remove(c.id); }
+                    catch (e) { setActionError(e instanceof Error ? e.message : String(e)); }
                   }}
-                  className="btn btn-danger-ghost btn-sm">
-                  删除
+                  className="btn btn-danger-ghost btn-sm ml-auto">
+                  移除
                 </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {!loading && clusters.length > 0 && visibleClusters.length === 0 && (
+        <div className="card mt-3 p-8 text-center">
+          <div className="text-[13px] font-semibold text-slate-200">没有匹配的集群</div>
+          <button onClick={() => setQuery("")} className="btn btn-ghost btn-sm mt-3">清除搜索</button>
+        </div>
+      )}
 
       {/* 新增 / 编辑表单：宽幅三列 */}
       {editing && (
@@ -201,10 +235,6 @@ export function ClustersPage() {
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-2 text-[11.5px] text-[var(--text-faint)]">
-        <span>进入集群后可直接浏览数据：</span>
-        <Link to="/topics" className="btn btn-ghost btn-sm">去 Topics 浏览 →</Link>
-      </div>
     </div>
   );
 }
