@@ -40,9 +40,11 @@ def decode_sasl_auth_v1(buf: bytes) -> dict:
     off = 0
     (err,) = struct.unpack_from(">h", buf, off)
     off += 2
+    error_message, off = dec_string(buf, off)
     msg, off = dec_bytes(buf, off)
     (sess,) = struct.unpack_from(">q", buf, off) if off + 8 <= len(buf) else (-1,)
-    return {"errorCode": err, "message": msg, "sessionId": sess}
+    return {"errorCode": err, "errorMessage": error_message,
+            "message": msg, "sessionId": sess}
 
 
 # ---------- PLAIN ----------

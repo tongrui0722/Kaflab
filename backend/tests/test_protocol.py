@@ -87,6 +87,24 @@ def test_sasl_plain_roundtrip_shape():
     assert sasl.encode_sasl_handshake_v1("SCRAM-SHA-512") == codec.enc_string("SCRAM-SHA-512")
 
 
+def test_sasl_auth_v1_response_decodes_error_message_before_auth_bytes():
+    auth_bytes = b"r=servernonce,s=c2FsdA==,i=4096"
+    raw = struct.pack(">h", 0) + codec.enc_string(None) + codec.enc_bytes(auth_bytes)
+    raw += struct.pack(">q", 60000)
+    decoded = sasl.decode_sasl_auth_v1(raw)
+    assert decoded == {"errorCode": 0, "errorMessage": None,
+                       "message": auth_bytes, "sessionId": 60000}
+
+
+def test_sasl_auth_v1_exposes_broker_auth_error_message():
+    error = "Authentication failed"
+    raw = struct.pack(">h", 58) + codec.enc_string(error) + codec.enc_bytes(b"")
+    raw += struct.pack(">q", 0)
+    decoded = sasl.decode_sasl_auth_v1(raw)
+    assert decoded["errorCode"] == 58
+    assert decoded["errorMessage"] == error
+
+
 def test_scram_client_final_verifies():
     import hashlib
     bare, first, _ = sasl.scram_client_first("scramuser")

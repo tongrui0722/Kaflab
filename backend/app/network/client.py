@@ -133,9 +133,9 @@ class KafkaClient:
                    response={"phase": label, "errorCode": dec["errorCode"],
                              "messageLen": len(dec["message"] or b"")})
         if not ok:
-            detail = ""
+            detail = dec.get("errorMessage") or ""
             try:
-                detail = (dec["message"] or b"").decode()
+                detail = detail or (dec["message"] or b"").decode()
             except Exception:
                 pass
             raise RuntimeError(f"SASL authentication failed errorCode={dec['errorCode']} {detail}")
