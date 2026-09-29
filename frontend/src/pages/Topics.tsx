@@ -35,6 +35,9 @@ export function TopicsPage() {
   const [cName, setCName] = useState("");
   const [cParts, setCParts] = useState(3);
   const [cRf, setCRf] = useState(1);
+  const [cRetentionMs, setCRetentionMs] = useState("");
+  const [cCleanupPolicy, setCCleanupPolicy] = useState("");
+  const [cRetentionMb, setCRetentionMb] = useState("");
   const [cConfigs, setCConfigs] = useState("");
   const [cBusy, setCBusy] = useState(false);
   const [cErr, setCErr] = useState<string | null>(null);
@@ -73,7 +76,15 @@ export function TopicsPage() {
       setCErr(`副本数须为 1 到 ${brokerCount} 之间的整数`);
       return;
     }
+    const retentionMb = cRetentionMb.trim() ? Number(cRetentionMb) : null;
+    if (retentionMb !== null && (!Number.isSafeInteger(retentionMb) || retentionMb < 1)) {
+      setCErr("保留容量必须是大于 0 的整数 MB");
+      return;
+    }
     let configs: Record<string, string> = {};
+    if (cRetentionMs) configs["retention.ms"] = cRetentionMs;
+    if (cCleanupPolicy) configs["cleanup.policy"] = cCleanupPolicy;
+    if (retentionMb !== null) configs["retention.bytes"] = String(retentionMb * 1024 * 1024);
     if (cConfigs.trim()) {
       try {
         const parsed = JSON.parse(cConfigs) as unknown;
@@ -81,7 +92,13 @@ export function TopicsPage() {
         if (Object.entries(parsed as Record<string, unknown>).some(([k, v]) => !k.trim() || typeof v !== "string")) {
           throw new Error("bad-config-value");
         }
-        configs = parsed as Record<string, string>;
+        const advanced = parsed as Record<string, string>;
+        const duplicates = Object.keys(advanced).filter((key) => key in configs);
+        if (duplicates.length) {
+          setCErr(`配置项重复：${duplicates.join(", ")}。请在常用配置或高级 JSON 中保留一处。`);
+          return;
+        }
+        configs = { ...configs, ...advanced };
       } catch {
         setCErr("Topic 配置必须为 JSON 对象，如 {\"retention.ms\": \"604800000\"}");
         return;
@@ -99,6 +116,9 @@ export function TopicsPage() {
       if (!r.ok) { responseStatus = r.status; throw new Error(await r.text()); }
       setShowCreate(false);
       setCName("");
+      setCRetentionMs("");
+      setCCleanupPolicy("");
+      setCRetentionMb("");
       setCConfigs("");
       setCSuccess(`Topic「${name}」创建成功`);
       await load(conn.id);
@@ -117,6 +137,9 @@ export function TopicsPage() {
       if (refreshed?.some((row) => row.topic === name)) {
         setShowCreate(false);
         setCName("");
+        setCRetentionMs("");
+        setCCleanupPolicy("");
+        setCRetentionMb("");
         setCConfigs("");
         setCSuccess(`Topic「${name}」已在 Kafka 集群中确认存在`);
         setCErr(null);
@@ -223,11 +246,41 @@ export function TopicsPage() {
               {cBusy ? "创建中…" : "创建 Topic"}
             </button>
             <div className="sm:col-span-2 xl:col-span-full">
-              <label className="lbl">Topic 配置（可选 JSON）</label>
-              <textarea className="field mono min-h-[72px] py-2" value={cConfigs}
-                placeholder={'{"retention.ms": "604800000", "cleanup.policy": "delete"}'}
-                onChange={(e) => setCConfigs(e.target.value)} />
-              <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">配置值使用字符串；例如保留 7 天：retention.ms = 604800000。</div>
+              <div className="mb-2 text-[11px] font-semibold text-slate-300">常用配置</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div><label className="lbl">消息保留时间</label>
+                  <select className="field" value={cRetentionMs} onChange={(e) => setCRetentionMs(e.target.value)}>
+                    <option value="">沿用 Broker 默认</option>
+                    <option value="86400000">1 天</option>
+                    <option value="259200000">3 天</option>
+                    <option value="604800000">7 天</option>
+                    <option value="2592000000">30 天</option>
+                    <option value="7776000000">90 天</option>
+                    <option value="-1">永久保留</option>
+                  </select>
+                </div>
+                <div><label className="lbl">清理策略</label>
+                  <select className="field" value={cCleanupPolicy} onChange={(e) => setCCleanupPolicy(e.target.value)}>
+                    <option value="">沿用 Broker 默认</option>
+                    <option value="delete">按保留策略删除（delete）</option>
+                    <option value="compact">按 Key 压缩（compact）</option>
+                    <option value="compact,delete">压缩并按期删除</option>
+                  </select>
+                </div>
+                <div><label className="lbl">容量上限（MB，可选）</label>
+                  <input type="number" min={1} step={1} className="field mono" value={cRetentionMb}
+                    placeholder="留空表示沿用默认值" onChange={(e) => setCRetentionMb(e.target.value)} />
+                </div>
+              </div>
+              <details className="mt-3 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3">
+                <summary className="cursor-pointer text-[11px] font-semibold text-slate-300">高级配置（JSON，可选）</summary>
+                <div className="mt-2">
+                  <textarea className="field mono min-h-[72px] py-2" value={cConfigs}
+                    placeholder={'{"max.message.bytes": "1048576"}'}
+                    onChange={(e) => setCConfigs(e.target.value)} />
+                  <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">配置值使用字符串；与上方常用配置重复的键会提示错误。</div>
+                </div>
+              </details>
             </div>
           </div>
           {cErr && <div className="alert err mt-3">{cErr}</div>}
