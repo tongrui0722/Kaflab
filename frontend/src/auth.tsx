@@ -91,6 +91,7 @@ export function LoginPage() {
     setErr(null);
     try {
       await login(username.trim(), password, mode);
+      window.location.hash = "#/dashboard";
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

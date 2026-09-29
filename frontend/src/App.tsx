@@ -34,7 +34,7 @@ function Guarded() {
     <HashRouter>
       <Shell status={<ConnBar conn={conn} />}>
         <Routes>
-          <Route path="/" element={<Navigate to="/producer" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/clusters" element={<ClustersPage />} />
           <Route path="/topics" element={<TopicsPage />} />

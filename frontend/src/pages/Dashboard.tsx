@@ -12,7 +12,7 @@ interface GroupRow { groupId: string; state?: string; protocol?: string; members
 export function DashboardPage() {
   const { conn, clusters, select } = useConn();
   const ALL = "__all__";
-  const [selId, setSelId] = useState<string>(conn.id);
+  const [selId, setSelId] = useState<string>(ALL);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [topics, setTopics] = useState<TopicRow[]>([]);
   const [brokers, setBrokers] = useState<{ id?: number; host: string; port: number }[]>([]);
@@ -23,7 +23,9 @@ export function DashboardPage() {
   const [refreshSeq, setRefreshSeq] = useState(0);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  useEffect(() => { setSelId(conn.id); }, [conn.id]);
+  useEffect(() => {
+    if (selId !== ALL) setSelId(conn.id);
+  }, [conn.id, selId]);
   const selCluster = clusters.find((c) => c.id === selId);
   const isAll = selId === ALL;
 
