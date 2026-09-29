@@ -154,7 +154,7 @@ export function ClustersPage() {
         </div>
       )}
 
-      {/* 集群采用横向紧凑行，编辑器紧跟所属集群显示。 */}
+      {/* 每张卡片采用统一的上下两层：身份与操作、协议与运行元数据。 */}
       <div className="space-y-3">
         {visibleClusters.map((c) => {
           const h = health[c.id];
@@ -163,51 +163,23 @@ export function ClustersPage() {
           const dot = probing === c.id ? "bg-sky-400" : h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
           return (
             <div key={c.id} className="space-y-2">
-              <div className={`card fade-up flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3.5 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
-                <div className="flex min-w-[250px] flex-1 items-center gap-3">
-                  <span className="relative flex h-2.5 w-2.5 shrink-0">
-                  {probing === c.id && <span className="absolute h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />}
-                  <span className={`relative h-2.5 w-2.5 rounded-full ${dot}`} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="truncate text-[15px] font-bold text-slate-100">{c.name}</span>
-                    <span className={`badge ${probing === c.id ? "run" : h?.connected ? "ok" : h?.connected === false ? "err" : "mute"}`}>{status}</span>
-                    {active && <span className="badge run">当前集群</span>}
+              <div className={`card fade-up p-4 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                  <div className="flex min-w-[260px] flex-1 items-center gap-3">
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      {probing === c.id && <span className="absolute h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />}
+                      <span className={`relative h-2.5 w-2.5 rounded-full ${dot}`} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-[15px] font-bold text-slate-100">{c.name}</span>
+                        <span className={`badge ${probing === c.id ? "run" : h?.connected ? "ok" : h?.connected === false ? "err" : "mute"}`}>{status}</span>
+                        {active && <span className="badge run">当前集群</span>}
+                      </div>
+                      <div className="mono mt-1 truncate text-[11px] text-slate-300" title={c.bootstrap}>{c.bootstrap}</div>
                     </div>
-                    <div className="mono mt-0.5 truncate text-[11px] text-slate-300" title={c.bootstrap}>{c.bootstrap}</div>
                   </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="badge vio">{c.securityProtocol}</span>
-                  {c.securityProtocol !== "PLAINTEXT" && <span className="badge mute">{c.saslMechanism}</span>}
-                </div>
-                {h?.connected && h.brokers && h.brokers.length > 0 && (
-                  <div className="flex min-w-[240px] flex-1 flex-wrap items-center gap-1.5 text-[10px]">
-                    <span className="mr-0.5 text-[var(--text-faint)]">节点</span>
-                    {h.brokers.map((broker) => (
-                      <span key={broker.id} title={broker.rack ? `Rack: ${broker.rack}` : `${broker.host}:${broker.port}`}
-                        className="mono rounded-md border border-[var(--border-soft)] bg-[var(--panel-3)] px-2 py-1 text-slate-300">
-                        #{broker.id} {broker.host}:{broker.port}{broker.id === h.controllerId ? " · Controller" : ""}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10px]">
-                    <span className="text-[var(--text-faint)]">Brokers</span>
-                    <span className="mono text-[13px] font-semibold text-slate-100">
-                    {h?.brokerCount ?? (probing === c.id ? "…" : "—")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10px]">
-                    <span className="text-[var(--text-faint)]">Topics</span>
-                    <span className="mono text-[13px] font-semibold text-slate-100">
-                    {h?.topicCount ?? (probing === c.id ? "…" : "—")}
-                    </span>
-                  </div>
-                </div>
-                <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
+                  <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
                   {!active && <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入</button>}
                   <button onClick={() => void doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
                     {probing === c.id ? "探测中…" : "探测"}
@@ -232,8 +204,42 @@ export function ClustersPage() {
                     className="btn btn-danger-ghost btn-sm">
                     移除
                   </button>
+                  </div>
                 </div>
-                {h?.error && <div className="alert err w-full break-words !py-1.5" title={h.error}>探测失败：{h.error}</div>}
+                <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[var(--border-soft)] pt-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <span className="badge vio">{c.securityProtocol}</span>
+                    {c.securityProtocol !== "PLAINTEXT" && <span className="badge mute">{c.saslMechanism}</span>}
+                    {h?.connected && h.brokers && h.brokers.length > 0 ? (
+                      <>
+                        <span className="ml-1 text-[10.5px] font-semibold text-[var(--text-faint)]">Broker 节点</span>
+                        {h.brokers.map((broker) => (
+                          <span key={broker.id} title={broker.rack ? `Rack: ${broker.rack}` : `${broker.host}:${broker.port}`}
+                            className="mono inline-flex items-center gap-1.5 rounded-md border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10.5px] text-slate-300">
+                            <span className="font-semibold text-sky-300">#{broker.id}</span>
+                            <span>{broker.host}:{broker.port}</span>
+                            {broker.id === h.controllerId && <span className="text-amber-300">Controller</span>}
+                          </span>
+                        ))}
+                      </>
+                    ) : (
+                      <span className="ml-1 text-[10.5px] text-[var(--text-faint)]">
+                        {h?.error ? "节点元数据暂不可用" : probing === c.id ? "正在获取节点信息…" : "探测后显示 Broker 节点信息"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <div className="flex min-w-[105px] items-center justify-between gap-3 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+                      <span className="text-[10.5px] text-[var(--text-faint)]">Brokers</span>
+                      <span className="mono text-[13px] font-semibold text-slate-100">{h?.brokerCount ?? (probing === c.id ? "…" : "—")}</span>
+                    </div>
+                    <div className="flex min-w-[100px] items-center justify-between gap-3 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+                      <span className="text-[10.5px] text-[var(--text-faint)]">Topics</span>
+                      <span className="mono text-[13px] font-semibold text-slate-100">{h?.topicCount ?? (probing === c.id ? "…" : "—")}</span>
+                    </div>
+                  </div>
+                </div>
+                {h?.error && <div className="alert err mt-3 break-words" title={h.error}>探测失败：{h.error}</div>}
               </div>
               {editing?.id === c.id && (
                 <ClusterEditor draft={editing} onChange={setEditing} onSubmit={() => void submit()}

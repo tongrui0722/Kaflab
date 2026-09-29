@@ -50,32 +50,29 @@ export function Shell({ children, status }: { children: ReactNode; status?: Reac
   return (
     <div className="flex min-h-screen">
       {/* 侧边栏 */}
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-[232px] flex-col border-r border-[var(--border-soft)] md:flex">
-        <Link to="/dashboard" className="flex items-center gap-3 border-b border-[var(--border-soft)] px-5 pb-4 pt-5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-300 to-cyan-600 text-[16px] font-black text-[#04121b] shadow-[0_8px_22px_-8px_rgba(56,189,248,0.75)]">K</span>
+      <aside className="fixed inset-y-0 left-0 z-30 flex w-[196px] flex-col border-r border-[var(--border-soft)] bg-[var(--bg-soft)]">
+        <Link to="/dashboard" className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-gradient-to-br from-sky-400 to-cyan-600 text-[15px] font-black text-[#04121b] shadow-[0_6px_18px_-6px_rgba(56,189,248,0.7)]">K</span>
           <span className="leading-tight">
-            <span className="block text-[14px] font-bold tracking-wide text-slate-100">Kafka Lab</span>
-            <span className="mt-0.5 block text-[10px] text-[var(--text-faint)]">CLUSTER OPERATIONS</span>
+            <span className="block text-[13px] font-bold tracking-wide text-slate-100">Kafka Lab</span>
+            <span className="block text-[10px] text-[var(--text-faint)]">Client · Trace · Lab</span>
           </span>
         </Link>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
-          <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">工作台</div>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5">
           {GLOBAL_NAV.map(([label, to, icon]) => (
             <NavLink key={to} label={label} to={to} icon={icon} active={isActive(to)} />
           ))}
           {/* 当前集群层级 */}
-          <div className="mx-1 mb-2 mt-6 rounded-xl border border-[var(--border-soft)] bg-[rgba(14,24,42,0.72)] p-3">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-              <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
-              当前集群
+          <div className="px-1 pb-1 pt-3 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+            <div className="flex items-center gap-1.5">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
+              <span className="min-w-0 flex-1 truncate normal-case" title={active.name}>{active.name}</span>
             </div>
-            <div className="mt-1 truncate text-[12px] font-semibold text-slate-200" title={active.name}>{active.name}</div>
-            <div className="mono mt-1 truncate text-[10px] text-[var(--text-faint)]" title={active.bootstrap}>{active.bootstrap}</div>
           </div>
           {clusterNav.map(([label, to, icon]) => (
             <NavLink key={to} label={label} to={to} icon={icon} active={isActive(to)} indent />
           ))}
-          <div className="px-3 pb-2 pt-6 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
+          <div className="px-3 pb-1 pt-3 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
             工具
           </div>
           {toolNav.map(([label, to, icon]) => (
@@ -83,14 +80,14 @@ export function Shell({ children, status }: { children: ReactNode; status?: Reac
           ))}
         </nav>
         {/* 模式与退出 */}
-        <div className="flex items-center gap-2 px-4 pb-3 text-[10.5px]">
+        <div className="flex items-center gap-1.5 px-3.5 pb-1 text-[10.5px]">
           <span className={`inline-block h-1.5 w-1.5 rounded-full ${readonly ? "bg-sky-400" : "bg-amber-300"}`} />
           <span className="text-[var(--text-faint)]">{readonly ? "只读巡检" : "全部功能"}</span>
           <button onClick={logout} className="ml-auto text-slate-500 hover:text-slate-200" title="退出登录">退出</button>
         </div>
         {/* 集群切换 */}
-        <div className="border-t border-[var(--border-soft)] bg-black/10 p-3">
-          <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+        <div className="border-t border-[var(--border-soft)] p-2.5">
+          <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${h?.connected == null ? "" : h.connected ? "" : ""}`} />
             集群
             <button onClick={() => probe(active.id)} className="ml-auto rounded px-1 text-[12px] hover:bg-white/10 hover:text-slate-200" title="探测当前集群">↻</button>
@@ -100,41 +97,30 @@ export function Shell({ children, status }: { children: ReactNode; status?: Reac
               const c = clusters.find((x) => x.id === e.target.value);
               if (c) reportConn({ ok: null, bootstrap: c.bootstrap, detail: c.name });
             }}
-            className="field mono !h-[36px] !text-[11.5px]">
+            className="field mono !h-[32px] !text-[11.5px]">
             {clusters.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
-          <div className="mono mt-1.5 truncate px-1 text-[10px] text-[var(--text-faint)]" title={h?.error ?? h?.connected === false ? "未连接" : active.bootstrap}>
+          <div className="mono mt-1 truncate px-1 text-[10px] text-[var(--text-faint)]" title={h?.error ?? h?.connected === false ? "未连接" : active.bootstrap}>
             {h?.connected ? `已连接${h?.brokerCount != null ? ` · ${h.brokerCount} nodes` : ""}` : h?.connected === false ? "未连接 · 点↻重测" : active.bootstrap}
           </div>
         </div>
       </aside>
 
       {/* 主区 */}
-      <div className="app-main min-w-0 flex-1 pl-0 md:pl-[232px]">
-        <header className="app-topbar sticky top-0 z-20 border-b border-[var(--border-soft)] backdrop-blur-xl">
-          <div className="mx-auto flex max-w-[1680px] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[12px]">
-                <span className="font-semibold text-slate-100">{cur?.[0] ?? ""}</span>
-                <span className="text-[var(--text-faint)]">/</span>
-                <span className="truncate text-[var(--text-dim)]">{active.name}</span>
-              </div>
-              <div className="mono mt-0.5 truncate text-[10px] text-[var(--text-faint)] md:hidden">{active.bootstrap}</div>
-            </div>
-            <span className="ml-auto flex shrink-0 items-center gap-2">
+      <div className="min-w-0 flex-1 pl-[196px]">
+        <header className="sticky top-0 z-20 border-b border-[var(--border-soft)] bg-[rgba(6,10,19,0.88)] backdrop-blur">
+          <div className="mx-auto flex max-w-[1500px] items-center gap-3 px-4 py-2.5">
+            <span className="text-[13px] font-semibold text-slate-200">{cur?.[0] ?? ""}</span>
+            <span className="text-[11px] text-[var(--text-faint)]">/ {active.name}</span>
+            <span className="ml-auto flex items-center gap-2">
               <span className="badge vio hidden sm:inline-flex">{active.securityProtocol}</span>
               {status}
             </span>
           </div>
-          <nav className="mobile-nav flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
-            {[...GLOBAL_NAV, ...clusterNav, ...toolNav].map(([label, to, icon]) => (
-              <NavLink key={to} label={label} to={to} icon={icon} active={isActive(to)} />
-            ))}
-          </nav>
         </header>
-        <main className="mx-auto max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+        <main className="mx-auto max-w-[1500px] px-4 py-4">
           {unlocked && (
             <div className="mb-3 flex items-center gap-2 rounded-lg border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.07)] px-3 py-1.5 text-[11.5px] text-amber-200/90">
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" />

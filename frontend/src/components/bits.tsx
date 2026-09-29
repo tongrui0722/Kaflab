@@ -26,12 +26,12 @@ export function KV({ k, v, mono }: { k: string; v: ReactNode; mono?: boolean }) 
 /** 页头：标题 + 说明 + 右侧操作 */
 export function PageHeader({ title, desc, right }: { title: string; desc?: string; right?: ReactNode }) {
   return (
-    <div className="page-h flex flex-wrap items-end gap-3">
+    <div className="page-h flex flex-wrap items-end gap-2">
       <div className="min-w-0">
         <h1>{title}</h1>
         {desc && <p>{desc}</p>}
       </div>
-      {right && <div className="page-actions ml-auto flex flex-wrap items-center gap-2">{right}</div>}
+      {right && <div className="ml-auto flex items-center gap-2">{right}</div>}
     </div>
   );
 }
