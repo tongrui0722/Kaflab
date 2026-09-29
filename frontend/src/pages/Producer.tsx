@@ -3,7 +3,6 @@ import { DEFAULT_PRODUCE, clusterQuery, type ClusterStatus, type ProduceForm } f
 import { useConn } from "../conn";
 import { reportConn } from "../App";
 import { Inspector } from "../components/Inspector";
-import { GroupDetailTab, CoordTab } from "../components/ProducerTabs";
 import { TopologyGraph, FullTimeline } from "../components/Topology";
 import { TraceTimeline } from "../components/TraceTimeline";
 import { KV, PageHeader, StatusBadge } from "../components/bits";
@@ -51,15 +50,13 @@ export function ProducerPage() {
   const [mode, setMode] = useState<"single" | "batch">("single");
   const [batchCount, setBatchCount] = useState(10);
   const [sending, setSending] = useState(false);
-  const [headers, setHeaders] = useState<{ k: string; v: string }[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showConnDetail, setShowConnDetail] = useState(false);
   const [copied, setCopied] = useState(false);
   const [cluster, setCluster] = useState<ClusterStatus | null>(null);
   const [clusterErr, setClusterErr] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
   const [sendFail, setSendFail] = useState<string | null>(null);
-  const [midTab, setMidTab] = useState("trace");
+  const [midTab, setMidTab] = useState<"trace" | "timeline" | "faults">("trace");
   const [faultStates, setFaultStates] = useState<Record<string, boolean>>({});
   const loadFaults = async () => {
     try {
@@ -130,7 +127,10 @@ export function ProducerPage() {
   }, [failEv]);
   useEffect(() => { setPreferRes(false); }, [selected]);
   const activePartition =
-    events.find((e) => e.partition != null)?.partition ?? cluster?.partitions[0]?.partition ?? 0;
+    (doneEv && doneResp["partition"] != null ? Number(doneResp["partition"]) : undefined)
+      ?? events.find((e) => e.partition != null)?.partition
+      ?? (form.partition !== "auto" ? Number(form.partition) : undefined)
+      ?? cluster?.partitions[0]?.partition ?? 0;
   const leaderOf = (p?: number) => cluster?.partitions.find((x) => x.partition === p)?.leader;
   const leaderAddr = (p?: number) => {
     const id = leaderOf(p);
@@ -176,7 +176,7 @@ export function ProducerPage() {
   }, []);
   // 全局集群切换 → 自动刷新本页分区
   useEffect(() => { probe(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
-    [conn.bootstrap, conn.securityProtocol, conn.saslMechanism, conn.saslUsername, conn.saslPassword]);
+    [conn.bootstrap, conn.securityProtocol, conn.saslMechanism, conn.saslUsername, conn.saslPassword, form.topic]);
 
   const randStr = (n = 16) => {
     const cs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
@@ -245,9 +245,9 @@ export function ProducerPage() {
 
   return (
     <div>
-      <PageHeader title="Producer" desc="发消息，看完整协议链路"
+      <PageHeader title="生产消息" desc="构造消息并发送到 Kafka，实时观察分区路由、Broker 确认和 Offset"
         right={<><StatusBadge status={statusBadge} text={statusText} />{doneEv && <span className="mono text-[11px] text-slate-500">Offset: {String(doneResp["offset"] ?? "")}</span>}</>} />
-    <div className="layout-grid layout-3">
+    <div className="layout-grid producer-layout">
       {/* 左：配置（连接 / 消息 / 发送模式分区展示） */}
       <div className="space-y-3">
         <div className="card p-3">
@@ -283,7 +283,10 @@ export function ProducerPage() {
         </div>
 
         <div className="card p-3">
-          <div className="card-title mb-2">消息</div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="card-title !mb-0">消息内容</span>
+            <span className="badge mute">{mode === "batch" ? `批量 · ${batchCount} 条` : "单条消息"}</span>
+          </div>
           <div><label className={labelCls}>Topic</label>
             <input className={`${inputCls} mono`} value={form.topic}
               onChange={(e) => setForm({ ...form, topic: e.target.value })} /></div>
@@ -302,10 +305,10 @@ export function ProducerPage() {
           <details className="mt-2 rounded-lg bg-black/20 px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">更多参数</summary>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <div><label className={labelCls}>Partition<span className="ml-1 font-normal text-slate-600">默认所有分区</span></label>
+            <div><label className={labelCls}>目标分区</label>
               <select className={inputCls} value={form.partition}
                 onChange={(e) => setForm({ ...form, partition: e.target.value })}>
-                <option value="auto">所有分区</option>
+                <option value="auto">自动（首个健康分区）</option>
                 {(cluster?.partitions ?? []).map((p) => (
                   <option key={p.partition} value={String(p.partition)}>
                     {p.partition}（leader {p.leader}）
@@ -315,7 +318,7 @@ export function ProducerPage() {
               {(form.partition === "auto" ? selPart != null : form.partition !== "auto") && (
                 <div className="mono mt-1 text-[10.5px] text-slate-500">
                   {form.partition === "auto"
-                    ? (selPart != null ? <>P{String(selPart)}{selLeader != null ? <> · Leader {String(selLeader)}</> : null}</> : null)
+                    ? (selPart != null ? <>当前命中 P{String(selPart)}{selLeader != null ? <> · Leader {String(selLeader)}</> : null}</> : <>发送前按集群 Metadata 选择</>)
                     : (() => { const l = leaderAddr(Number(form.partition)); return (
                       <>P{form.partition} · Leader {l.id ?? "N/A"}</>); })()}
                 </div>
@@ -327,57 +330,19 @@ export function ProducerPage() {
                 <option value="all">all</option><option value="1">1</option><option value="0">0</option>
               </select></div>
           </div>
-          <div className="mt-2">
-            <div className="mb-1 flex items-center justify-between">
-              <label className={labelCls} style={{ marginBottom: 0 }}>Headers</label>
-              <span className="badge warn" title="Produce v0（MessageSet）协议无 headers 字段，当前不会发送到 broker">
-                未发送
-              </span>
-            </div>
-            {headers.map((h, i) => (
-              <div key={i} className="mb-1 flex gap-1.5">
-                <input className={`${inputCls} mono`} placeholder="key" value={h.k}
-                  onChange={(e) => setHeaders((p) => p.map((x, j) => j === i ? { ...x, k: e.target.value } : x))} />
-                <input className={`${inputCls} mono`} placeholder="value" value={h.v}
-                  onChange={(e) => setHeaders((p) => p.map((x, j) => j === i ? { ...x, v: e.target.value } : x))} />
-                <button onClick={() => setHeaders((p) => p.filter((_, j) => j !== i))}
-                  className="btn btn-danger-ghost btn-sm shrink-0">×</button>
-              </div>
-            ))}
-            <button onClick={() => setHeaders((p) => [...p, { k: "", v: "" }])}
-              className="btn btn-ghost btn-sm">+ Add Header</button>
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <div><label className={labelCls}>Retries</label>
               <input type="number" className={`${inputCls} mono`} value={form.retries}
                 onChange={(e) => setForm({ ...form, retries: Number(e.target.value) })} /></div>
-            <div><label className={labelCls}>Req.Timeout</label>
+            <div><label className={labelCls}>请求超时 (ms)</label>
               <input type="number" className={`${inputCls} mono`} value={form.requestTimeoutMs}
                 onChange={(e) => setForm({ ...form, requestTimeoutMs: Number(e.target.value) })} /></div>
-            <div><label className={labelCls}>Delivery</label>
-              <input type="number" className={`${inputCls} mono`} value={form.deliveryTimeoutMs}
-                onChange={(e) => setForm({ ...form, deliveryTimeoutMs: Number(e.target.value) })} /></div>
           </div>
-          <button onClick={() => setShowAdvanced((v) => !v)}
-            className="mt-2 text-[11px] text-slate-500 hover:text-slate-300">
-            {showAdvanced ? "▾ 预设参数" : "▸ 预设参数"}
-          </button>
-          {showAdvanced && (
-            <div className="mt-1.5 space-y-1 text-[11px]">
-              {[["compression.type", "none"], ["batch.size", "16384"], ["linger.ms", "0"],
-                ["max.in.flight", "5"], ["idempotence", "false"]].map(([k, v]) => (
-                <div key={k} className="flex items-center gap-2">
-                  <span className="mono shrink-0 text-slate-400">{k}</span>
-                  <span className="mono flex-1 truncate text-right text-slate-600">{v}</span>
-                </div>
-              ))}
-            </div>
-          )}
           </details>
         </div>
 
         <div className="card p-3">
-          <div className="card-title mb-2">Send Mode</div>
+          <div className="card-title mb-2">发送方式</div>
           <div className="flex gap-4 text-[12px]">
             {(["single", "batch"] as const).map((m) => (
               <button key={m} onClick={() => setMode(m)} className="flex items-center gap-1.5">
@@ -385,19 +350,19 @@ export function ProducerPage() {
                   {mode === m && <span className="h-1.5 w-1.5 rounded-full bg-sky-300" />}
                 </span>
                 <span className={mode === m ? "text-slate-100" : "text-slate-500"}>
-                  {m === "single" ? "Single Record" : "Batch Records"}
+                  {m === "single" ? "发送单条" : "批量发送"}
                 </span>
               </button>
             ))}
           </div>
           {mode === "batch" && (
-            <div className="mt-2 flex items-center gap-2"><label className={labelCls} style={{ marginBottom: 0 }}>Records</label>
+            <div className="mt-2 flex items-center gap-2"><label className={labelCls} style={{ marginBottom: 0 }}>消息条数</label>
               <input type="number" min={2} max={100} className={`${inputCls} mono`} value={batchCount}
                 onChange={(e) => setBatchCount(Number(e.target.value))} /></div>
           )}
           <button onClick={() => requireLab(() => { void onSend(); })} disabled={running || sending}
             className={`btn btn-send mt-3 ${!running && !sending && (failEv || sendError || sendFail) ? "is-failed" : ""}`}>
-            {sending || running ? "Sending…" : failEv || sendError || sendFail ? "重新发送" : mode === "batch" ? `Send × ${batchCount}` : "Send"}
+            {sending || running ? "正在发送…" : failEv || sendError || sendFail ? "重试发送" : mode === "batch" ? `发送 ${batchCount} 条` : "发送消息"}
           </button>
           {(sendFail || sendError) && (
             <div className="alert err mt-2">
@@ -416,8 +381,7 @@ export function ProducerPage() {
       <div className="min-w-0 space-y-3">
         <div className="card px-3 pt-2">
           <div className="flex gap-1 border-b border-[var(--border-soft)] text-[12.5px]">
-            {([["trace", "请求追踪"], ["group", "消费组内详情"], ["coord", "协调解析"],
-               ["timeline", "时间线"], ["faults", "故障数据"]] as const).map(([k, t]) => (
+            {([["trace", "发送追踪"], ["timeline", "时间线"], ["faults", "故障分析"]] as const).map(([k, t]) => (
               <button key={k} onClick={() => setMidTab(k)}
                 className={`relative px-2.5 pb-2.5 pt-1 transition-colors ${midTab === k ? "font-semibold text-sky-300" : "text-[var(--text-faint)] hover:text-slate-300"}`}>
                 {t}
@@ -441,13 +405,6 @@ export function ProducerPage() {
                 <TraceTimeline steps={steps} selected={selected} onSelect={setSelected}
                   total={doneResp["totalMs"] != null ? `${doneResp["totalMs"]} ms` : undefined} />
               )
-            )}
-            {midTab === "group" && (
-              <GroupDetailTab events={events} topic={form.topic}
-                partitions={cluster?.partitions ?? []} activePartition={activePartition} />
-            )}
-            {midTab === "coord" && (
-              <CoordTab events={events} />
             )}
             {midTab === "timeline" && <FullTimeline events={events} />}
             {midTab === "faults" && (
@@ -499,12 +456,15 @@ export function ProducerPage() {
         <div className="card p-3">
           <TopologyGraph
             topic={form.topic}
-            partitions={(cluster?.partitions ?? []).map((p) => ({ p: p.partition, leader: p.leader }))}
+            partitions={(cluster?.partitions ?? []).map((p) => ({
+              p: p.partition, leader: p.leader, replicas: p.replicas, isr: p.isr,
+            }))}
+            brokers={cluster?.brokers ?? []}
             activePartition={activePartition}
-            leader={leaderOf(activePartition)}
+            actualRoute={!!doneEv}
+            actualBrokerId={events.find((e) => e.apiName === "Produce" && e.direction === "request")?.broker?.id}
           />
         </div>
-        <div className="card p-3"><FullTimeline events={events} /></div>
       </div>
 
       {/* 右：结果列 */}
@@ -626,7 +586,7 @@ export function ProducerPage() {
         </div>
         <div className="card p-3">
           <div className="mb-2 flex items-center justify-between">
-            <span className="card-title">Recent Messages（真实发送 · 刷新保留）</span>
+            <span className="card-title">发送记录 <span className="font-normal text-[var(--text-faint)]">· 本地保留</span></span>
             <button onClick={() => { setRecent([]); try { localStorage.removeItem("kcl-recent"); } catch { /* ignore */ } }}
               className="text-[11px] text-slate-500 hover:text-slate-300">清空</button>
           </div>
