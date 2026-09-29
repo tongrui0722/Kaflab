@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useConn } from "../conn";
 import { useAuth, authHeaders } from "../auth";
-import { KV, PageHeader } from "../components/bits";
+import { PageHeader } from "../components/bits";
 import { TopicMessages } from "./TopicMessages";
 
 const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
@@ -22,6 +22,7 @@ export function TopicDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [detail, setDetail] = useState<PartRow[] | null>(null);
   const [brokers, setBrokers] = useState<{ id?: number; host: string; port: number }[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
@@ -31,8 +32,11 @@ export function TopicDetailPage() {
   const [rfTarget, setRfTarget] = useState(0);
   const [rfBusy, setRfBusy] = useState(false);
   const [rfMsg, setRfMsg] = useState<string | null>(null);
+  const [partitionQuery, setPartitionQuery] = useState("");
+  const [partitionHealth, setPartitionHealth] = useState<"all" | "healthy" | "offline" | "under-replicated">("all");
 
   const loadDetail = async () => {
+    setDetailLoading(true);
     setFetchErr(null);
     try {
       const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}`);
@@ -45,6 +49,8 @@ export function TopicDetailPage() {
     } catch (e) {
       setDetail(null);
       setFetchErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -123,6 +129,25 @@ export function TopicDetailPage() {
   };
 
   const rf = detail ? Math.max(...detail.map((p) => p.replicas.length), 1) : 0;
+  const offlinePartitions = detail?.filter((p) => p.leader < 0).length ?? 0;
+  const underReplicatedPartitions = detail?.filter((p) => p.isr.length < p.replicas.length).length ?? 0;
+  const minIsr = detail?.length ? Math.min(...detail.map((p) => p.isr.length)) : 0;
+  const leaderDistribution = detail
+    ? [...new Set(detail.map((p) => p.leader))].sort((a, b) => a - b)
+      .map((leader) => ({ leader, count: detail.filter((p) => p.leader === leader).length }))
+    : [];
+  const visiblePartitions = (detail ?? []).filter((p) => {
+    const search = partitionQuery.trim();
+    const matchesQuery = !search || String(p.partition).includes(search)
+      || String(p.leader).includes(search) || p.replicas.join(",").includes(search);
+    const offline = p.leader < 0;
+    const underReplicated = p.isr.length < p.replicas.length;
+    const matchesHealth = partitionHealth === "all"
+      || (partitionHealth === "healthy" && !offline && !underReplicated)
+      || (partitionHealth === "offline" && offline)
+      || (partitionHealth === "under-replicated" && !offline && underReplicated);
+    return matchesQuery && matchesHealth;
+  });
 
   return (
     <div>
@@ -136,65 +161,105 @@ export function TopicDetailPage() {
               <button onClick={() => setConfirmDel(true)} className="btn btn-danger-ghost btn-sm">删除</button>
             )}
             {!readonly && confirmDel && (
-              <button onClick={deleteTopic} disabled={delBusy} className="btn btn-danger-ghost btn-sm">
-                {delBusy ? "删除中…" : `确认删除 ${topic}？`}
-              </button>
+              <>
+                <span className="badge err">确认删除 Topic？</span>
+                <button onClick={deleteTopic} disabled={delBusy} className="btn btn-danger-ghost btn-sm">
+                  {delBusy ? "删除中…" : "确认删除"}
+                </button>
+                <button onClick={() => setConfirmDel(false)} disabled={delBusy} className="btn btn-ghost btn-sm">取消</button>
+              </>
             )}
+            <button onClick={() => void loadDetail()} disabled={detailLoading} className="btn btn-ghost btn-sm">
+              {detailLoading ? "刷新中…" : "↻ 刷新"}
+            </button>
           </>
         }
       />
-      {fetchErr && <div className="alert warn mb-3">{fetchErr}</div>}
-      <div className="card px-3 pt-2">
-        <div className="flex gap-4 border-b border-[var(--border-soft)] text-[12.5px]">
+      {fetchErr && <div className="alert err mb-3 flex items-center gap-3">{fetchErr}
+        <button onClick={() => void loadDetail()} className="btn btn-ghost btn-sm ml-auto">重试</button>
+      </div>}
+      <div className="card overflow-hidden">
+        <div role="tablist" aria-label="Topic 详情页面" className="flex gap-1 overflow-x-auto border-b border-[var(--border-soft)] px-3 pt-2 text-[12.5px] sm:px-4">
           {(["overview", "partitions", "config", "messages"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`relative pb-2.5 transition-colors ${tab === t ? "font-semibold text-sky-300" : "text-[var(--text-faint)] hover:text-slate-300"}`}>
-              {t === "overview" ? "Overview" : t === "partitions" ? `Partitions${detail ? ` (${detail.length})` : ""}` : t === "config" ? "Configuration" : "Messages"}
+            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+              className={`relative shrink-0 rounded-t-lg px-3 pb-3 pt-2 transition-colors ${tab === t ? "font-semibold text-sky-300" : "text-[var(--text-faint)] hover:bg-white/[0.025] hover:text-slate-300"}`}>
+              {t === "overview" ? "概览" : t === "partitions" ? "分区" : t === "config" ? "配置" : "消息"}
+              {t === "partitions" && detail && <span className="badge mute ml-1.5">{detail.length}</span>}
               {tab === t && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded-full bg-sky-400" />}
             </button>
           ))}
         </div>
-        <div className="py-3">
+        <div role="tabpanel" className="p-3 sm:p-4">
           {tab === "overview" && (
-            <div className="grid gap-2.5 xl:grid-cols-2">
-              <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3">
-                <div className="card-title mb-2">快捷操作</div>
-                <div className="flex gap-1.5">
-                  <button onClick={openInConsumer} className="btn btn-info btn-sm flex-1">
-                    在 Consumer 页读 P0 最新 10 条 →
-                  </button>
-                  <button
-                    onClick={() => {
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+                {[
+                  { label: "分区", value: detail?.length ?? "—", note: "Topic 分区总数", tone: "sky" },
+                  { label: "副本因子", value: detail ? rf : "—", note: `${brokers.length} 台 Broker`, tone: "violet" },
+                  { label: "离线分区", value: detail ? offlinePartitions : "—", note: offlinePartitions ? "没有可用 Leader" : "全部有 Leader", tone: offlinePartitions ? "rose" : "emerald" },
+                  { label: "ISR 不足", value: detail ? underReplicatedPartitions : "—", note: underReplicatedPartitions ? "副本尚未全部同步" : "副本同步正常", tone: underReplicatedPartitions ? "amber" : "blue" },
+                ].map((item) => (
+                  <div key={item.label} className={`metric-card metric-${item.tone}`}>
+                    <div className="metric-label">{item.label}</div>
+                    <div className="mono mt-1.5 text-[20px] font-bold text-slate-100">{detailLoading ? "…" : item.value}</div>
+                    <div className="mt-1 truncate text-[10.5px] text-[var(--text-faint)]">{item.note}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 xl:grid-cols-2">
+                <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="card-title">Broker 与 Leader 分布</span>
+                    <span className={`badge ${offlinePartitions || underReplicatedPartitions ? "warn" : "ok"}`}>
+                      {offlinePartitions ? "存在离线分区" : underReplicatedPartitions ? "副本同步中" : "健康"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {brokers.map((broker) => {
+                      const leaders = leaderDistribution.find((item) => item.leader === broker.id)?.count ?? 0;
+                      return <div key={broker.id} className="flex min-w-[170px] flex-1 items-center gap-2 rounded-lg border border-[var(--border-soft)] px-3 py-2.5">
+                        <span className="badge run">#{broker.id}</span>
+                        <span className="mono min-w-0 flex-1 truncate text-[11px] text-slate-300">{broker.host}:{broker.port}</span>
+                        <span className="text-[10px] text-[var(--text-faint)]">{leaders} Leaders</span>
+                      </div>;
+                    })}
+                    {brokers.length === 0 && <div className="py-3 text-[11px] text-[var(--text-faint)]">暂无 Broker 元数据。</div>}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
+                  <div className="card-title mb-3">消息快捷入口</div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={openInConsumer} className="btn btn-info btn-sm flex-1">在 Consumer 页读取 P0 最新消息 →</button>
+                    <button onClick={() => {
                       try { localStorage.setItem("kcl-producer-prefill", JSON.stringify({ topic })); } catch { /* ignore */ }
                       window.location.hash = "#/producer";
-                    }}
-                    className="btn btn-ghost btn-sm shrink-0">
-                    去发送 →
-                  </button>
-                </div>
-                <div className="mt-2">
-                  <KV k="Brokers" v={brokers.map((b) => `#${b.id} ${b.host}:${b.port}`).join(" · ")} mono />
+                    }} className="btn btn-ghost btn-sm">前往 Producer →</button>
+                  </div>
                 </div>
               </div>
               {!readonly && detail && (
-                <div className="divide-y divide-[var(--border-soft)] rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-1">
-                  <div className="flex h-10 items-center gap-2">
-                    <span className="w-16 shrink-0 text-[11.5px] text-slate-500">分区扩容</span>
-                    <span className="mono rounded bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-400">{detail.length} →</span>
-                    <input type="number" min={detail.length + 1} max={1000} value={expTarget}
-                      onChange={(e) => setExpTarget(Math.floor(Number(e.target.value) || 0))}
-                      className="field mono nospin !h-[28px] !w-20 !px-1.5 text-center" />
-                    <button onClick={expandPartitions} disabled={expBusy} className="btn btn-ghost btn-sm !min-h-[28px]">扩容</button>
-                    {expMsg && <span className="mono min-w-0 flex-1 truncate text-right text-[11px] text-slate-500" title={expMsg}>{expMsg}</span>}
+                <div className="grid gap-3 xl:grid-cols-2">
+                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
+                    <div className="text-[12px] font-semibold text-slate-200">分区扩容</div>
+                    <div className="mb-3 mt-1 text-[10.5px] text-[var(--text-faint)]">只能增加分区数，扩容后不可缩减。</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mono text-[11px] text-slate-400">{detail.length} →</span>
+                      <input aria-label="目标分区数" type="number" min={detail.length + 1} max={1000} value={expTarget}
+                        onChange={(e) => setExpTarget(Math.floor(Number(e.target.value) || 0))} className="field mono nospin !h-[32px] !w-24 text-center" />
+                      <button onClick={expandPartitions} disabled={expBusy || expTarget <= detail.length} className="btn btn-ghost btn-sm">{expBusy ? "提交中…" : "扩容分区"}</button>
+                    </div>
+                    {expMsg && <div className={`alert mt-3 ${expMsg.includes("失败") || expMsg.includes("须") ? "err" : "info"}`}>{expMsg}</div>}
                   </div>
-                  <div className="flex h-10 items-center gap-2">
-                    <span className="w-16 shrink-0 text-[11.5px] text-slate-500">副本调整</span>
-                    <span className="mono rounded bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-400">RF {rf} →</span>
-                    <input type="number" min={1} max={Math.max(brokers.length, 1)} value={rfTarget}
-                      onChange={(e) => setRfTarget(Math.floor(Number(e.target.value) || 0))}
-                      className="field mono nospin !h-[28px] !w-20 !px-1.5 text-center" />
-                    <button onClick={applyReplicas} disabled={rfBusy} className="btn btn-ghost btn-sm !min-h-[28px]">应用</button>
-                    {rfMsg && <span className="mono min-w-0 flex-1 truncate text-right text-[11px] text-slate-500" title={rfMsg}>{rfMsg}</span>}
+                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
+                    <div className="text-[12px] font-semibold text-slate-200">副本调整</div>
+                    <div className="mb-3 mt-1 text-[10.5px] text-[var(--text-faint)]">目标副本数不能超过 Broker 数（{brokers.length}）。</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mono text-[11px] text-slate-400">RF {rf} →</span>
+                      <input aria-label="目标副本数" type="number" min={1} max={Math.max(brokers.length, 1)} value={rfTarget}
+                        onChange={(e) => setRfTarget(Math.floor(Number(e.target.value) || 0))} className="field mono nospin !h-[32px] !w-24 text-center" />
+                      <button onClick={applyReplicas} disabled={rfBusy || rfTarget < 1 || rfTarget > brokers.length || rfTarget === rf} className="btn btn-ghost btn-sm">{rfBusy ? "提交中…" : "应用副本调整"}</button>
+                    </div>
+                    {rfMsg && <div className={`alert mt-3 ${rfMsg.toLowerCase().includes("failed") || rfMsg.includes("失败") ? "err" : "info"}`}>{rfMsg}</div>}
                   </div>
                 </div>
               )}
@@ -202,25 +267,41 @@ export function TopicDetailPage() {
           )}
           {tab === "partitions" && (
             detail ? (
-              <div className="scroll-box max-h-[560px] overflow-y-auto overscroll-contain rounded-lg border border-[var(--border-soft)]">
-                <table className="tbl mono tabular-nums">
-                  <thead className="sticky top-0 bg-[var(--panel-2)]"><tr>
-                    <th className="!text-center">P</th>
-                    <th className="!text-center">Leader</th>
-                    <th>Replicas</th>
-                    <th>ISR</th>
-                  </tr></thead>
-                  <tbody>
-                    {detail.map((p) => (
-                      <tr key={p.partition} className="transition-colors hover:bg-white/[0.025]">
-                        <td className="!text-center text-slate-300">{p.partition}</td>
-                        <td className="!text-center"><span className="badge run">{p.leader}</span></td>
-                        <td className="text-slate-400">{p.replicas.join(", ")}</td>
-                        <td className="text-slate-400">{p.isr.join(", ")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">全部分区</div><div className="mono mt-1 text-[16px] font-semibold text-slate-100">{detail.length}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">离线分区</div><div className={`mono mt-1 text-[16px] font-semibold ${offlinePartitions ? "text-rose-300" : "text-emerald-300"}`}>{offlinePartitions}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">ISR 不足</div><div className={`mono mt-1 text-[16px] font-semibold ${underReplicatedPartitions ? "text-amber-300" : "text-emerald-300"}`}>{underReplicatedPartitions}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">最小 ISR</div><div className="mono mt-1 text-[16px] font-semibold text-slate-100">{minIsr}</div></div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input value={partitionQuery} onChange={(e) => setPartitionQuery(e.target.value)} className="field mono !h-[34px] min-w-[180px] flex-1 sm:max-w-xs" placeholder="搜索分区、Leader 或 Broker ID…" aria-label="搜索分区" />
+                  <select value={partitionHealth} onChange={(e) => setPartitionHealth(e.target.value as typeof partitionHealth)} className="field !h-[34px] !w-auto min-w-[145px]" aria-label="分区健康筛选">
+                    <option value="all">全部分区</option><option value="healthy">健康</option><option value="offline">离线</option><option value="under-replicated">ISR 不足</option>
+                  </select>
+                  <span className="text-[10.5px] text-[var(--text-faint)]">{visiblePartitions.length} / {detail.length} 个分区</span>
+                </div>
+                <div className="scroll-box max-h-[min(65vh,680px)] overflow-auto overscroll-contain rounded-lg border border-[var(--border-soft)]">
+                  <table className="tbl mono min-w-[680px] tabular-nums">
+                    <thead className="sticky top-0 z-10 bg-[var(--panel-2)]"><tr>
+                      <th className="!text-center">分区</th><th className="!text-center">Leader</th><th>Replicas</th><th>ISR</th><th className="!text-center">健康</th>
+                    </tr></thead>
+                    <tbody>
+                      {visiblePartitions.map((p) => {
+                        const offline = p.leader < 0;
+                        const underReplicated = p.isr.length < p.replicas.length;
+                        return <tr key={p.partition} className="transition-colors hover:bg-white/[0.025]">
+                          <td className="!text-center text-slate-300">{p.partition}</td>
+                          <td className="!text-center">{offline ? <span className="badge err">无 Leader</span> : <span className="badge run">#{p.leader}</span>}</td>
+                          <td className="text-slate-400">{p.replicas.map((id) => <span key={id} className="badge mute mr-1">#{id}</span>)}</td>
+                          <td className="text-slate-400">{p.isr.map((id) => <span key={id} className="badge mute mr-1">#{id}</span>)}</td>
+                          <td className="!text-center">{offline ? <span className="badge err">离线</span> : underReplicated ? <span className="badge warn">ISR 不足</span> : <span className="badge ok">健康</span>}</td>
+                        </tr>;
+                      })}
+                      {visiblePartitions.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-[11px] text-[var(--text-faint)]">没有匹配的分区</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <div className="py-8 text-center text-[12px] text-slate-500">分区加载中…</div>
@@ -228,14 +309,24 @@ export function TopicDetailPage() {
           )}
           {tab === "config" && (
             detail ? (
-              <div className="grid max-w-3xl gap-1">
-                <KV k="分区数" v={String(detail.length)} mono />
-                <KV k="副本因子" v={String(rf)} mono />
-                <KV k="最小 ISR" v={String(Math.min(...detail.map((p) => p.isr.length), 0))} mono />
-                <KV k="Leader 分布" v={[...new Set(detail.map((p) => p.leader))].map((l) => `#${l} × ${detail.filter((p) => p.leader === l).length}`).join(" · ")} mono />
-                <KV k="离线分区" v={detail.some((p) => p.leader < 0) ? "存在" : "无"} mono />
-                <div className="pt-1 text-[11px] leading-relaxed text-slate-600">
-                  broker 侧 Topic 配置项（retention / cleanup.policy 等）需 DescribeConfigs API，当前协议库暂未支持。
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><div className="text-[13px] font-bold text-slate-100">Topic 配置</div><div className="mt-1 text-[11px] text-[var(--text-faint)]">分区拓扑摘要来自 Kafka Metadata。</div></div>
+                  <span className="badge warn">实际 Topic 参数暂不可读取</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">分区数</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{detail.length}</div></div>
+                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">副本因子</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{rf}</div></div>
+                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">最小 ISR</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{minIsr}</div></div>
+                </div>
+                <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
+                  <div className="card-title mb-3">Leader 分布</div>
+                  <div className="flex flex-wrap gap-2">
+                    {leaderDistribution.map(({ leader, count }) => <span key={leader} className={`badge ${leader < 0 ? "err" : "run"}`}>{leader < 0 ? "无 Leader" : `Broker #${leader}`} · {count} 分区</span>)}
+                  </div>
+                </div>
+                <div className="alert info">
+                  这里目前显示的是由分区元数据计算出的拓扑摘要。Topic 自定义配置（如 <span className="mono">retention.ms</span>、<span className="mono">cleanup.policy</span>）尚未接入 Kafka DescribeConfigs API；详情和修改能力列为后续缺项。
                 </div>
               </div>
             ) : (
@@ -244,7 +335,13 @@ export function TopicDetailPage() {
           )}
           {tab === "messages" && (
             detail ? (
-              <TopicMessages cid={conn.id} topic={topic} partitions={detail.map((p) => p.partition)} />
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div><div className="text-[13px] font-bold text-slate-100">消息浏览器</div><div className="mt-1 text-[10.5px] text-[var(--text-faint)]">按分区、Offset 或时间定位；只读读取，不修改消息。</div></div>
+                  <span className="badge mute">{detail.length} 个分区</span>
+                </div>
+                <TopicMessages cid={conn.id} topic={topic} partitions={detail.map((p) => p.partition)} />
+              </div>
             ) : (
               <div className="py-8 text-center text-[12px] text-slate-500">分区加载中…</div>
             )

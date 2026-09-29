@@ -162,9 +162,14 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
   }
 
   return (
-    <div>
+    <div className="space-y-3">
       {/* 查询条件 */}
-      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+      <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-3.5 sm:p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[12px] font-semibold text-slate-200">查询条件</div>
+        <div className="text-[10px] text-[var(--text-faint)]">选择读取位置和过滤条件</div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div><label className={labelCls}>Partition</label>
           <select className={inputCls} value={partition} onChange={(e) => setPartition(e.target.value)}>
             <option value="all">All</option>
@@ -198,7 +203,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
               onChange={(e) => setEnd(e.target.value)} /></div>
         </div>
       )}
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div><label className={labelCls}>Key 包含</label>
           <input className={inputCls} value={keyQ} placeholder="可选"
             onChange={(e) => setKeyQ(e.target.value)} /></div>
@@ -206,7 +211,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
           <input className={inputCls} value={valQ} placeholder="可选"
             onChange={(e) => setValQ(e.target.value)} /></div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] pt-3">
         <button onClick={() => query(false)} disabled={busy || live !== "off"} className="btn btn-info btn-sm">
           {busy ? "查询中…" : "查询"}
         </button>
@@ -228,6 +233,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
           {msgs.length} loaded{truncated ? " · 已达扫描上限" : ""}
         </span>
       </div>
+      </div>
       {err && <div className="alert err mt-2">{err}</div>}
       {truncated && <div className="alert warn mt-2">查询已达到最大扫描范围，未继续扫描更多消息。（10000 条 / 30s）</div>}
 
@@ -237,7 +243,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
           <div className="py-8 text-center text-[12px] text-slate-500">{emptyNote ?? "没有消息"}</div>
         ) : (
           <>
-            <div className="scroll-box max-h-[380px] overflow-y-auto overscroll-contain rounded-lg border border-[var(--border-soft)]">
+            <div className="scroll-box max-h-[min(58vh,640px)] overflow-y-auto overscroll-contain rounded-lg border border-[var(--border-soft)]">
               <table className="tbl mono">
                 <thead className="sticky top-0 bg-[var(--panel-2)]"><tr>
                   <th className="text-center">分区</th>
