@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useConn } from "../conn";
 import { authHeaders } from "../auth";
 import { PageHeader } from "../components/bits";
-import type { Session } from "../types";
 
 const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
 
@@ -13,11 +12,13 @@ export function DashboardPage() {
   const { conn, clusters, select } = useConn();
   const ALL = "__all__";
   const [selId, setSelId] = useState<string>(ALL);
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [topics, setTopics] = useState<TopicRow[]>([]);
   const [brokers, setBrokers] = useState<{ id?: number; host: string; port: number }[]>([]);
   const [groups, setGroups] = useState<GroupRow[]>([]);
-  const [perCluster, setPerCluster] = useState<Record<string, { topics: number; brokers: number; groups: number; lag: number; err?: string }>>({});
+  const [perCluster, setPerCluster] = useState<Record<string, {
+    topics: number; offlineTopics: number; partitions: number; brokers: number;
+    groups: number; activeGroups: number; lag: number; err?: string;
+  }>>({});
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshSeq, setRefreshSeq] = useState(0);
@@ -36,9 +37,6 @@ export function DashboardPage() {
       setErr(null);
       try {
         const headers = authHeaders();
-        const ss = await (await fetch(`${API}/api/sessions`, { headers })).json() as Session[];
-        if (dead) return;
-        setSessions(ss);
         if (isAll) {
           const rows = await Promise.all(clusters.map(async (c) => {
             try {
@@ -46,9 +44,18 @@ export function DashboardPage() {
                 (await fetch(`${API}/api/clusters/${c.id}/topics`, { headers })).json() as Promise<{ topics: TopicRow[]; brokers: typeof brokers }>,
                 (await fetch(`${API}/api/clusters/${c.id}/groups`, { headers })).json() as Promise<{ groups: GroupRow[] }>,
               ]);
-              return [c.id, { topics: t.topics.length, brokers: t.brokers.length, groups: g.groups.length, lag: g.groups.reduce((a, x) => a + (x.totalLag ?? 0), 0) }] as const;
+              return [c.id, {
+                topics: t.topics.length,
+                offlineTopics: t.topics.filter((topic) => topic.hasOffline).length,
+                partitions: t.topics.reduce((sum, topic) => sum + topic.partitions, 0),
+                brokers: t.brokers.length,
+                groups: g.groups.length,
+                activeGroups: g.groups.filter((group) => (group.state ?? "") !== "Empty").length,
+                lag: g.groups.reduce((a, x) => a + (x.totalLag ?? 0), 0),
+              }] as const;
             } catch (e) {
-              return [c.id, { topics: 0, brokers: 0, groups: 0, lag: 0, err: e instanceof Error ? e.message : String(e) }] as const;
+              return [c.id, { topics: 0, offlineTopics: 0, partitions: 0, brokers: 0, groups: 0,
+                activeGroups: 0, lag: 0, err: e instanceof Error ? e.message : String(e) }] as const;
             }
           }));
           if (dead) return;
@@ -77,17 +84,8 @@ export function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId, clusters, refreshSeq]);
 
-  const done = sessions.filter((s) => s.status === "success" || s.status === "error");
-  const ok = sessions.filter((s) => s.status === "success").length;
-  const fails = sessions.filter((s) => s.status === "error");
-  const durs = sessions.map((s) => s.durationMs).filter((d): d is number => d != null);
-  const avg = durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : null;
   const offlineTopics = topics.filter((t) => t.hasOffline);
   const topTopics = [...topics].sort((a, b) => b.partitions - a.partitions);
-  const recentFails = fails.slice(0, 5);
-  const recent = sessions.slice(0, 10);
-  const ops = ["Producer", "Consumer", "Group", "Rebalance"] as const;
-  const opCount = (op: string) => sessions.filter((s) => s.operation === op).length;
 
   const go = (hash: string) => { window.location.hash = hash; };
   const pick = (id: string) => {
@@ -96,8 +94,16 @@ export function DashboardPage() {
   };
 
   const allTotals = Object.values(perCluster).reduce(
-    (a, c) => ({ brokers: a.brokers + c.brokers, topics: a.topics + c.topics, groups: a.groups + c.groups, lag: a.lag + c.lag }),
-    { brokers: 0, topics: 0, groups: 0, lag: 0 });
+    (a, c) => ({
+      brokers: a.brokers + c.brokers,
+      topics: a.topics + c.topics,
+      offlineTopics: a.offlineTopics + c.offlineTopics,
+      partitions: a.partitions + c.partitions,
+      groups: a.groups + c.groups,
+      activeGroups: a.activeGroups + c.activeGroups,
+      lag: a.lag + c.lag,
+    }),
+    { brokers: 0, topics: 0, offlineTopics: 0, partitions: 0, groups: 0, activeGroups: 0, lag: 0 });
 
   const reachableClusters = Object.values(perCluster).filter((c) => !c.err).length;
   const stats: { k: string; v: React.ReactNode; sub?: string; tone?: string }[] = isAll ? [
@@ -118,12 +124,12 @@ export function DashboardPage() {
       sub: allTotals.lag > 0 ? `总 LAG ${allTotals.lag}` : "无积压", tone: allTotals.lag > 0 ? "amber" : "emerald",
     },
     {
-      k: "成功率", v: <span className="text-[20px] font-bold text-slate-100">{done.length ? `${Math.round((ok / done.length) * 100)}%` : "—"}</span>,
-      sub: `${ok}/${done.length} 成功`, tone: "emerald",
+      k: "分区", v: <span className="text-[20px] font-bold text-slate-100">{allTotals.partitions}</span>,
+      sub: "全集群合计", tone: "violet",
     },
     {
-      k: "失败", v: <span className={`text-[20px] font-bold ${fails.length ? "text-rose-300" : "text-slate-500"}`}>{fails.length}</span>,
-      sub: fails.length ? "见下方明细" : "零失败", tone: fails.length ? "rose" : "slate",
+      k: "离线 Topic", v: <span className={`text-[20px] font-bold ${allTotals.offlineTopics ? "text-rose-300" : "text-emerald-300"}`}>{allTotals.offlineTopics}</span>,
+      sub: allTotals.offlineTopics ? "存在 Leader 缺失" : "全部有 Leader", tone: allTotals.offlineTopics ? "rose" : "emerald",
     },
   ] : [
     {
@@ -143,16 +149,13 @@ export function DashboardPage() {
       sub: groups.length ? `${groups.filter((g) => (g.state ?? "") !== "Empty").length} 活跃` : "暂无", tone: "violet",
     },
     {
-      k: "成功率", v: <span className="text-[20px] font-bold text-slate-100">{done.length ? `${Math.round((ok / done.length) * 100)}%` : "—"}</span>,
-      sub: `${ok}/${done.length} 成功`, tone: "emerald",
+      k: "分区", v: <span className="text-[20px] font-bold text-slate-100">{topics.reduce((sum, topic) => sum + topic.partitions, 0)}</span>,
+      sub: "当前集群合计", tone: "violet",
     },
     {
-      k: "平均耗时", v: <span className="text-[20px] font-bold text-slate-100">{avg != null ? `${avg}` : "—"}<span className="text-[12px] font-semibold text-slate-400"> ms</span></span>,
-      sub: `${durs.length} 次统计`, tone: "sky",
-    },
-    {
-      k: "失败", v: <span className={`text-[20px] font-bold ${fails.length ? "text-rose-300" : "text-slate-500"}`}>{fails.length}</span>,
-      sub: fails.length ? "见下方明细" : "零失败", tone: fails.length ? "rose" : "slate",
+      k: "消费组", v: <span className="text-[20px] font-bold text-slate-100">{groups.length}</span>,
+      sub: `${groups.filter((g) => (g.state ?? "") !== "Empty").length} 活跃 · 总 LAG ${groups.reduce((sum, group) => sum + (group.totalLag ?? 0), 0)}`,
+      tone: groups.some((g) => (g.totalLag ?? 0) > 0) ? "amber" : "emerald",
     },
   ];
 
@@ -197,7 +200,7 @@ export function DashboardPage() {
       {err && <div className="alert err mb-3">加载失败：{err}</div>}
 
       {/* 指标 */}
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+      <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 ${isAll ? "xl:grid-cols-6" : "xl:grid-cols-4"}`}>
         {stats.map((s) => (
           <div key={s.k} className={`metric-card metric-${s.tone ?? "slate"} fade-up`}>
             <div className="metric-label">{s.k}</div>
@@ -226,25 +229,30 @@ export function DashboardPage() {
                 const pc = perCluster[c.id];
                 return (
                   <button key={c.id} onClick={() => pick(c.id)}
-                    className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2.5 text-left transition-colors hover:border-sky-500/40">
+                      className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-3.5 text-left transition-all hover:border-sky-500/40 hover:bg-[rgba(56,189,248,0.035)]">
                     <div className="flex items-center gap-2">
                       <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${pc?.err ? "bg-rose-400" : pc ? "bg-emerald-400" : "bg-slate-500"}`} />
-                      <span className="mono min-w-0 flex-1 truncate text-[12.5px] font-semibold text-slate-100">{c.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-100">{c.name}</span>
                       {c.id === conn.id && <span className="badge run shrink-0">当前</span>}
+                      {pc && <span className={`badge shrink-0 ${pc.err ? "err" : "ok"}`}>{pc.err ? "不可达" : "在线"}</span>}
                     </div>
+                    <div className="mono mt-1 truncate text-[10.5px] text-[var(--text-faint)]" title={c.bootstrap}>{c.bootstrap}</div>
                     {loading && !pc ? (
-                      <div className="mt-1 text-[11px] text-slate-500">正在检查连接…</div>
+                      <div className="mt-3 text-[11px] text-slate-500">正在读取集群状态…</div>
                     ) : pc?.err ? (
-                      <div className="mono mt-1 truncate text-[11px] text-rose-300/80" title={pc.err}>不可达</div>
+                      <div className="mono mt-3 truncate text-[11px] text-rose-300/80" title={pc.err}>无法读取集群元数据</div>
                     ) : pc ? (
-                      <div className="mono mt-1.5 flex gap-3 text-[11px] text-[var(--text-faint)]">
-                        <span><b className="text-slate-200">{pc.brokers}</b> brokers</span>
-                        <span><b className="text-slate-200">{pc.topics}</b> topics</span>
-                        <span><b className="text-slate-200">{pc.groups}</b> 消费组</span>
-                        {pc.lag > 0 && <span className="text-amber-300">LAG {pc.lag}</span>}
+                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border-soft)] pt-3 text-[11px] text-[var(--text-faint)]">
+                        <span><b className="mono text-[13px] text-slate-100">{pc.brokers}</b><span className="ml-1">Brokers</span></span>
+                        <span><b className="mono text-[13px] text-slate-100">{pc.topics}</b><span className="ml-1">Topics</span></span>
+                        <span><b className="mono text-[13px] text-slate-100">{pc.partitions}</b><span className="ml-1">分区</span></span>
+                        <span><b className="mono text-[13px] text-slate-100">{pc.activeGroups}/{pc.groups}</b><span className="ml-1">活跃组</span></span>
+                        {pc.offlineTopics > 0 && <span className="badge err">离线 Topic {pc.offlineTopics}</span>}
+                        {pc.lag > 0 && <span className="badge warn">LAG {pc.lag}</span>}
+                        {pc.offlineTopics === 0 && pc.lag === 0 && <span className="badge ok">健康</span>}
                       </div>
                     ) : (
-                      <div className="mono mt-1 text-[11px] text-slate-600">探测中…</div>
+                      <div className="mt-3 text-[11px] text-slate-600">等待状态数据…</div>
                     )}
                   </button>
                 );
@@ -333,60 +341,11 @@ export function DashboardPage() {
             ))}
           </div>
           )}
-          {/* 操作分布 */}
-          <div className="mt-3 border-t border-[var(--border-soft)] pt-2.5">
-            <div className="card-title mb-1.5">操作分布（Sessions）</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ops.map((o) => (
-                <span key={o} className="badge mute !text-[11px] !py-1">{o} × {opCount(o)}</span>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
       </>
       )}
 
-      {/* 失败 + 最近 */}
-      <div className="layout-grid layout-2eq mt-3">
-        <div className="card flex min-h-0 flex-col p-3.5">
-          <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-100">最近失败</span>
-            {fails.length > 0 && <span className="badge err">{fails.length}</span>}
-          </div>
-          {recentFails.length === 0 && <div className="py-4 text-center text-[12px] text-slate-500">零失败，链路健康。</div>}
-          <div className="scroll-box max-h-[320px] min-h-[120px] flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-            {recentFails.map((s) => (
-              <div key={s.id} className="mono rounded-lg border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.05)] px-2.5 py-1.5 text-[11px]">
-                <div className="flex items-center gap-2">
-                  <span className="text-[var(--text-faint)]">{new Date(s.startTime).toLocaleTimeString("zh-CN", { hour12: false })}</span>
-                  <span className="truncate text-slate-300">{s.operation} {s.topic}</span>
-                </div>
-                <div className="mt-0.5 truncate text-rose-300/90">{s.error}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="card flex min-h-0 flex-col p-3.5">
-          <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-100">最近操作</span>
-            <span className="badge mute">{sessions.length}</span>
-          </div>
-          {recent.length === 0 && <div className="py-4 text-center text-[12px] text-slate-500">暂无 Session。去 Producer 发送第一条真实消息。</div>}
-          <div className="scroll-box max-h-[320px] min-h-[120px] flex-1 space-y-[3px] overflow-y-auto overscroll-contain pr-1">
-            {recent.map((s) => (
-              <div key={s.id} className="mono flex items-center gap-2.5 rounded-md px-2 py-1 text-[11px] text-slate-300 transition-colors hover:bg-white/[0.03]">
-                <span className="shrink-0 text-[var(--text-faint)]">{new Date(s.startTime).toLocaleTimeString("zh-CN", { hour12: false })}</span>
-                <span className="shrink-0 text-slate-400">{s.operation}</span>
-                <span className="min-w-0 flex-1 truncate">{s.topic}{s.partition != null ? ` P${s.partition}` : ""}{s.offset != null ? ` @${s.offset}` : ""}</span>
-                <span className={`shrink-0 font-bold ${s.status === "success" ? "text-emerald-300" : s.status === "error" ? "text-rose-300" : "text-sky-300"}`}>
-                  {s.status === "success" ? "✓" : s.status === "error" ? "✕" : "…"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
