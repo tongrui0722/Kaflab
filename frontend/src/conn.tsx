@@ -11,6 +11,8 @@ export interface ClusterHealth {
   connected: boolean | null;
   brokerCount?: number;
   topicCount?: number;
+  brokers?: { id: number; host: string; port: number; rack?: string | null }[];
+  controllerId?: number | null;
   error?: string;
 }
 
@@ -107,9 +109,18 @@ export function ConnProvider({ children }: { children: ReactNode }) {
 
   const probe = useCallback(async (id: string) => {
     try {
-      const d = await api<{ connected: boolean; brokerCount: number; topicCount: number }>(
+      const d = await api<{
+        connected: boolean;
+        brokerCount: number;
+        topicCount: number;
+        brokers: NonNullable<ClusterHealth["brokers"]>;
+        controllerId?: number | null;
+      }>(
         `/api/clusters/${id}/test`, { method: "POST", body: "{}" });
-      const h: ClusterHealth = { connected: true, brokerCount: d.brokerCount, topicCount: d.topicCount };
+      const h: ClusterHealth = {
+        connected: true, brokerCount: d.brokerCount, topicCount: d.topicCount,
+        brokers: d.brokers, controllerId: d.controllerId,
+      };
       setHealth((prev) => ({ ...prev, [id]: h }));
       return h;
     } catch (e) {

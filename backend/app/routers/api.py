@@ -255,15 +255,16 @@ async def test_cluster(cid: str, request: Request):
         await kc.call(18, "ApiVersions", 0, codec.encode_apiversions_v0(), 2,
                       "apiversions", extra_req={"probe": True},
                       decode=codec.decode_apiversions_v0)
-        meta_dec, _, _ = await kc.call(3, "Metadata", 0,
+        meta_dec, _, _ = await kc.call(3, "Metadata", 1,
                                        codec.encode_metadata_v0([]),
-                                       3, "metadata", extra_req={"topics": "ALL"},
-                                       decode=codec.decode_metadata_v0)
+                                       3, "metadata", extra_req={"topics": "ALL", "controllerLookup": True},
+                                       decode=codec.decode_metadata_v1)
         from ..producer.shared import _metadata_dict
         meta = _metadata_dict(meta_dec)
         return {"connected": True, "brokers": meta["brokers"],
                 "brokerCount": len(meta["brokers"]),
-                "topicCount": len(meta["topics"])}
+                "topicCount": len(meta["topics"]),
+                "controllerId": meta_dec.controller_id}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"cluster unreachable: {type(e).__name__}: {e}")
     finally:

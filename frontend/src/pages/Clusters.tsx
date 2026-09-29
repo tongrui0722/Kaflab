@@ -155,7 +155,7 @@ export function ClustersPage() {
       )}
 
       {/* 集群采用横向紧凑行，编辑器紧跟所属集群显示。 */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         {visibleClusters.map((c) => {
           const h = health[c.id];
           const active = c.id === activeId;
@@ -163,15 +163,15 @@ export function ClustersPage() {
           const dot = probing === c.id ? "bg-sky-400" : h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
           return (
             <div key={c.id} className="space-y-2">
-              <div className={`card fade-up flex flex-wrap items-center gap-x-4 gap-y-2 px-3.5 py-2.5 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
-                <div className="flex min-w-[210px] flex-1 items-center gap-2.5">
+              <div className={`card fade-up flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3.5 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
+                <div className="flex min-w-[250px] flex-1 items-center gap-3">
                   <span className="relative flex h-2.5 w-2.5 shrink-0">
                   {probing === c.id && <span className="absolute h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />}
                   <span className={`relative h-2.5 w-2.5 rounded-full ${dot}`} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="truncate text-[14px] font-bold text-slate-100">{c.name}</span>
+                      <span className="truncate text-[15px] font-bold text-slate-100">{c.name}</span>
                     <span className={`badge ${probing === c.id ? "run" : h?.connected ? "ok" : h?.connected === false ? "err" : "mute"}`}>{status}</span>
                     {active && <span className="badge run">当前集群</span>}
                     </div>
@@ -182,6 +182,17 @@ export function ClustersPage() {
                   <span className="badge vio">{c.securityProtocol}</span>
                   {c.securityProtocol !== "PLAINTEXT" && <span className="badge mute">{c.saslMechanism}</span>}
                 </div>
+                {h?.connected && h.brokers && h.brokers.length > 0 && (
+                  <div className="flex min-w-[240px] flex-1 flex-wrap items-center gap-1.5 text-[10px]">
+                    <span className="mr-0.5 text-[var(--text-faint)]">节点</span>
+                    {h.brokers.map((broker) => (
+                      <span key={broker.id} title={broker.rack ? `Rack: ${broker.rack}` : `${broker.host}:${broker.port}`}
+                        className="mono rounded-md border border-[var(--border-soft)] bg-[var(--panel-3)] px-2 py-1 text-slate-300">
+                        #{broker.id} {broker.host}:{broker.port}{broker.id === h.controllerId ? " · Controller" : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="flex shrink-0 items-center gap-1.5">
                   <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10px]">
                     <span className="text-[var(--text-faint)]">Brokers</span>
