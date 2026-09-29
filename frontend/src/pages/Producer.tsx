@@ -126,10 +126,11 @@ export function ProducerPage() {
     setPreferRes(true);
   }, [failEv]);
   useEffect(() => { setPreferRes(false); }, [selected]);
-  const activePartition =
-    (doneEv && doneResp["partition"] != null ? Number(doneResp["partition"]) : undefined)
-      ?? events.find((e) => e.partition != null)?.partition
-      ?? (form.partition !== "auto" ? Number(form.partition) : undefined)
+  const lastSentPartition = doneEv?.topic === form.topic && doneResp["partition"] != null
+    ? Number(doneResp["partition"]) : undefined;
+  const activePartition = form.partition !== "auto" ? Number(form.partition)
+    : events.find((e) => e.partition != null && e.topic === form.topic)?.partition
+      ?? lastSentPartition
       ?? cluster?.partitions[0]?.partition ?? 0;
   const leaderOf = (p?: number) => cluster?.partitions.find((x) => x.partition === p)?.leader;
   const leaderAddr = (p?: number) => {
@@ -289,7 +290,7 @@ export function ProducerPage() {
           </div>
           <div><label className={labelCls}>Topic</label>
             <input className={`${inputCls} mono`} value={form.topic}
-              onChange={(e) => setForm({ ...form, topic: e.target.value })} /></div>
+              onChange={(e) => setForm({ ...form, topic: e.target.value, partition: "auto" })} /></div>
           <div className="mt-2"><label className={labelCls}>Key</label>
             <input className={`${inputCls} mono`} value={form.key} placeholder="空 = 随机 Key"
               onChange={(e) => setForm({ ...form, key: e.target.value })} /></div>
@@ -461,8 +462,10 @@ export function ProducerPage() {
             }))}
             brokers={cluster?.brokers ?? []}
             activePartition={activePartition}
-            actualRoute={!!doneEv}
-            actualBrokerId={events.find((e) => e.apiName === "Produce" && e.direction === "request")?.broker?.id}
+            actualRoute={lastSentPartition === activePartition}
+            actualBrokerId={lastSentPartition === activePartition
+              ? events.find((e) => e.apiName === "Produce" && e.direction === "request")?.broker?.id : undefined}
+            onSelectPartition={(partition) => setForm((f) => ({ ...f, partition: String(partition) }))}
           />
         </div>
       </div>

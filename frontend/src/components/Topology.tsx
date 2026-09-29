@@ -10,8 +10,8 @@ export interface TopoPart {
 export interface TopoBroker { id?: number; host: string; port: number; }
 
 /** A metadata-backed topology. Replica/ISR membership and broker endpoints all come from Kafka Metadata. */
-export function TopologyGraph({ topic = "test-topic", partitions = [], brokers = [], activePartition, actualRoute = false, actualBrokerId }:
-  { topic?: string; partitions?: TopoPart[]; brokers?: TopoBroker[]; activePartition?: number; actualRoute?: boolean; actualBrokerId?: number }) {
+export function TopologyGraph({ topic = "test-topic", partitions = [], brokers = [], activePartition, actualRoute = false, actualBrokerId, onSelectPartition }:
+  { topic?: string; partitions?: TopoPart[]; brokers?: TopoBroker[]; activePartition?: number; actualRoute?: boolean; actualBrokerId?: number; onSelectPartition?: (partition: number) => void }) {
   const brokerIds = [...new Set([
     ...brokers.map((b) => b.id).filter((id): id is number => id != null),
     ...partitions.flatMap((p) => [...(p.replicas ?? []), ...(p.leader != null && p.leader >= 0 ? [p.leader] : [])]),
@@ -42,7 +42,7 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="card-title !mb-0">真实分区拓扑</div>
-          <div className="mt-1 text-[11px] text-[var(--text-faint)]">Kafka Metadata：Leader、Replica、ISR 与 Broker 地址</div>
+          <div className="mt-1 text-[11px] text-[var(--text-faint)]">Kafka Metadata：Leader、副本、ISR 与 Broker 地址 · 点击分区卡片可设为发送目标</div>
         </div>
         <div className="flex flex-wrap gap-1.5 text-[10px]">
           <span className="badge run">Leader</span><span className="badge ok">ISR</span><span className="badge mute">Replica</span>
@@ -78,7 +78,16 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
               const isr = p.isr ?? [];
               const replicas = p.replicas?.length ? p.replicas : p.leader != null && p.leader >= 0 ? [p.leader] : [];
               return (
-                <g key={p.p}>
+                <g key={p.p} className="topology-partition" role={onSelectPartition ? "button" : undefined} tabIndex={onSelectPartition ? 0 : undefined}
+                  aria-label={onSelectPartition ? `选择分区 ${p.p}，Leader Broker ${p.leader ?? "未知"}` : undefined}
+                  style={onSelectPartition ? { cursor: "pointer" } : undefined}
+                  onClick={onSelectPartition ? () => onSelectPartition(p.p) : undefined}
+                  onKeyDown={onSelectPartition ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectPartition(p.p);
+                    }
+                  } : undefined}>
                   <path d={`M ${topicX + 124} ${topicY + 27} C ${topicX + 150} ${topicY + 27}, ${x - 28} ${y + 12}, ${x} ${y + 12}`} fill="none" stroke={selected ? "#38bdf8" : "#475569"} strokeWidth={selected ? 2 : 1.2} markerEnd={selected ? "url(#topology-arrow-active)" : "url(#topology-arrow)"} />
                   {replicas.map((id) => {
                     const targetX = brokerStartX;
