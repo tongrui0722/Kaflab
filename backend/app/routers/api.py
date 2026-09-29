@@ -308,6 +308,8 @@ async def cluster_topics(cid: str, request: Request):
                 "replication": max((len(p.get("replicas", [])) for p in ps), default=0),
                 "leaders": sorted({p.get("leader") for p in ps if p.get("leader", -1) >= 0}),
                 "hasOffline": any(p.get("leader", -1) < 0 for p in ps),
+                "hasUnderReplicated": any(
+                    len(p.get("isr", [])) < len(p.get("replicas", [])) for p in ps),
             })
         out.sort(key=lambda x: x["topic"])
         return {"clusterId": cid, "brokers": meta["brokers"], "topics": out}
