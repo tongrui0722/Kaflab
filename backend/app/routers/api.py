@@ -510,17 +510,27 @@ async def cluster_topic_delete(cid: str, topic: str, request: Request):
     """删除 Topic（DeleteTopics v0 真实链路）。写入操作，需全部功能模式。"""
     _need_lab(request)
     from ..models import error_name
-    _, kc = _cluster_client(cid, request, "topic-delete")
     try:
-        await kc.connect(1, label="topic-delete")
-        await _ensure_admin_api(kc, 20, "DeleteTopics")
-        dec, _, _ = await kc.call(20, "DeleteTopics", 0,
-                                  codec.encode_delete_topics_v0([topic]),
-                                  3, "delete-topics",
-                                  extra_req={"topic": topic},
-                                  topic=topic, decode=codec.decode_delete_topics_v0)
-        t = (dec.get("topics") or [{}])[0]
-        code = t.get("errorCode", -1)
+        for attempt in (1, 2):
+            metadata = await _topic_cluster_metadata(cid, request, f"topic-delete-metadata-{attempt}")
+            broker = _controller_broker(metadata)
+            _, kc = _cluster_client(cid, request, f"topic-delete-{attempt}", broker)
+            try:
+                await kc.connect(1, label=f"topic-delete-controller-{attempt}")
+                await _ensure_admin_api(kc, 20, "DeleteTopics")
+                dec, _, _ = await kc.call(
+                    20, "DeleteTopics", 0, codec.encode_delete_topics_v0([topic]),
+                    3, "delete-topics",
+                    extra_req={"topic": topic, "controllerBrokerId": broker["id"],
+                               "attempt": attempt},
+                    topic=topic, decode=codec.decode_delete_topics_v0)
+            finally:
+                kc.close()
+            t = next((item for item in dec.get("topics", [])
+                      if item.get("topic") == topic), None)
+            code = (t or {}).get("errorCode", -1)
+            if code != 41 or attempt == 2:
+                break
         if code != 0:
             raise HTTPException(502, f"删除失败：{error_name(code)}（{code}）")
         return {"deleted": topic}
@@ -528,8 +538,6 @@ async def cluster_topic_delete(cid: str, topic: str, request: Request):
         raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"delete topic failed: {type(e).__name__}: {e}")
-    finally:
-        kc.close()
 
 
 def _topic_err_hint(code: int) -> str:
@@ -634,7 +642,11 @@ async def cluster_topic_reassign(cid: str, topic: str, body: dict, request: Requ
                     topic=topic, decode=codec.decode_alter_reassignments_v0, flexible=True)
             finally:
                 kc.close()
-            if dec.get("errorCode", 0) != 41 or attempt == 2:
+            partition_not_controller = any(
+                p.get("errorCode") == 41
+                for tp in dec.get("topics", [])
+                for p in tp.get("partitions", []))
+            if (dec.get("errorCode", 0) != 41 and not partition_not_controller) or attempt == 2:
                 break
         if dec.get("errorCode", 0) != 0:
             raise HTTPException(502, f"提交失败：{error_name(dec['errorCode'])}（{dec['errorCode']}）{dec.get('errorMessage') or ''}")
