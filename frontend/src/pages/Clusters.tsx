@@ -14,6 +14,65 @@ const EMPTY: Draft = {
   saslMechanism: "PLAIN", saslUsername: "", saslPassword: "",
 };
 
+function ClusterEditor({
+  draft, onChange, onSubmit, onCancel, busy, err,
+}: {
+  draft: Draft;
+  onChange: (draft: Draft) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  busy: boolean;
+  err: string | null;
+}) {
+  return (
+    <div className="card fade-up p-4">
+      <div className="card-t">
+        <span className="text-[13px] font-bold text-slate-100">{draft.id ? "编辑集群" : "新增集群"}</span>
+        {draft.id && <span className="mono text-[11px] text-[var(--text-faint)]">{draft.id}</span>}
+      </div>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        <div><label className={labelCls}>名称</label>
+          <input className={inputCls} placeholder="如：生产集群" value={draft.name}
+            onChange={(e) => onChange({ ...draft, name: e.target.value })} /></div>
+        <div><label className={labelCls}>Bootstrap（host:port，可逗号分隔多个）</label>
+          <input className={inputCls} placeholder="192.168.1.10:9092" value={draft.bootstrap}
+            onChange={(e) => onChange({ ...draft, bootstrap: e.target.value })} /></div>
+        <div><label className={labelCls}>Security Protocol</label>
+          <select className={inputCls} value={draft.securityProtocol}
+            onChange={(e) => onChange({ ...draft, securityProtocol: e.target.value })}>
+            <option value="PLAINTEXT">PLAINTEXT</option>
+            <option value="SASL_PLAINTEXT">SASL_PLAINTEXT</option>
+            <option value="SASL_SSL">SASL_SSL（未实现）</option>
+          </select></div>
+        {draft.securityProtocol !== "PLAINTEXT" && (
+          <>
+            <div><label className={labelCls}>SASL Mechanism</label>
+              <select className={inputCls} value={draft.saslMechanism}
+                onChange={(e) => onChange({ ...draft, saslMechanism: e.target.value })}>
+                <option value="PLAIN">PLAIN</option>
+                <option value="SCRAM-SHA-256">SCRAM-SHA-256</option>
+                <option value="SCRAM-SHA-512">SCRAM-SHA-512</option>
+              </select></div>
+            <div><label className={labelCls}>Username</label>
+              <input className={inputCls} value={draft.saslUsername}
+                onChange={(e) => onChange({ ...draft, saslUsername: e.target.value })} /></div>
+            <div><label className={labelCls}>Password</label>
+              <input type="password" className={inputCls} value={draft.saslPassword}
+                onChange={(e) => onChange({ ...draft, saslPassword: e.target.value })} /></div>
+          </>
+        )}
+      </div>
+      {err && <div className="alert err mt-2.5">{err}</div>}
+      <div className="mt-3 flex gap-2">
+        <button onClick={onSubmit} disabled={busy} className="btn btn-send !w-auto !px-6">
+          {busy ? "保存…" : "保存并进入"}
+        </button>
+        <button onClick={onCancel} className="btn btn-ghost !px-6">取消</button>
+      </div>
+    </div>
+  );
+}
+
 export function ClustersPage() {
   const { clusters, activeId, select, save, remove, probe, health, loading, refresh } = useConn();
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -95,73 +154,63 @@ export function ClustersPage() {
         </div>
       )}
 
-      {/* 集群卡片：连接状态、运行指标和管理动作分层呈现 */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      {/* 集群采用横向紧凑行，编辑器紧跟所属集群显示。 */}
+      <div className="space-y-2">
         {visibleClusters.map((c) => {
           const h = health[c.id];
           const active = c.id === activeId;
           const status = probing === c.id ? "探测中" : h?.connected ? "在线" : h?.connected === false ? "离线" : "待检测";
           const dot = probing === c.id ? "bg-sky-400" : h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
           return (
-            <div
-              key={c.id}
-              className={`card fade-up p-4 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
-              <div className="flex items-start gap-3">
-                <span className="relative mt-1 flex h-2.5 w-2.5 shrink-0">
+            <div key={c.id} className="space-y-2">
+              <div className={`card fade-up flex flex-wrap items-center gap-x-4 gap-y-2 px-3.5 py-2.5 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
+                <div className="flex min-w-[210px] flex-1 items-center gap-2.5">
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
                   {probing === c.id && <span className="absolute h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />}
                   <span className={`relative h-2.5 w-2.5 rounded-full ${dot}`} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-[15px] font-bold text-slate-100">{c.name}</span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-[14px] font-bold text-slate-100">{c.name}</span>
                     <span className={`badge ${probing === c.id ? "run" : h?.connected ? "ok" : h?.connected === false ? "err" : "mute"}`}>{status}</span>
                     {active && <span className="badge run">当前集群</span>}
+                    </div>
+                    <div className="mono mt-0.5 truncate text-[11px] text-slate-300" title={c.bootstrap}>{c.bootstrap}</div>
                   </div>
-                  <div className="mono mt-1.5 break-all text-[11.5px] text-slate-300">{c.bootstrap}</div>
-                  <div className="mt-0.5 text-[10.5px] text-[var(--text-faint)]">集群 ID：<span className="mono">{c.id}</span></div>
                 </div>
-                <span className="badge vio shrink-0">{c.securityProtocol}</span>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">Brokers</div>
-                  <div className="mono mt-1 text-[15px] font-semibold text-slate-100">
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="badge vio">{c.securityProtocol}</span>
+                  {c.securityProtocol !== "PLAINTEXT" && <span className="badge mute">{c.saslMechanism}</span>}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10px]">
+                    <span className="text-[var(--text-faint)]">Brokers</span>
+                    <span className="mono text-[13px] font-semibold text-slate-100">
                     {h?.brokerCount ?? (probing === c.id ? "…" : "—")}
-                    <span className="ml-1 text-[10px] font-normal text-[var(--text-faint)]">nodes</span>
+                    </span>
                   </div>
-                </div>
-                <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">Topics</div>
-                  <div className="mono mt-1 text-[15px] font-semibold text-slate-100">
+                  <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-1.5 text-[10px]">
+                    <span className="text-[var(--text-faint)]">Topics</span>
+                    <span className="mono text-[13px] font-semibold text-slate-100">
                     {h?.topicCount ?? (probing === c.id ? "…" : "—")}
+                    </span>
                   </div>
                 </div>
-              </div>
-
-              {h?.error && (
-                <div className="alert err mt-3 break-words" title={h.error}>
-                  探测失败：{h.error}
-                </div>
-              )}
-              {c.securityProtocol !== "PLAINTEXT" && (
-                <div className="mt-3 text-[11px] text-[var(--text-faint)]">SASL 机制：<span className="mono text-slate-300">{c.saslMechanism}</span></div>
-              )}
-              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] pt-3">
-                {!active && <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入集群</button>}
-                <button onClick={() => void doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
-                  {probing === c.id ? "探测中…" : "重新探测"}
-                </button>
-                <button onClick={() => { setEditing({ ...c }); setErr(null); setActionError(null); }} className="btn btn-ghost btn-sm">编辑配置</button>
-                <button
+                <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
+                  {!active && <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入</button>}
+                  <button onClick={() => void doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
+                    {probing === c.id ? "探测中…" : "探测"}
+                  </button>
+                  <button onClick={() => { setQuery(""); setEditing({ ...c }); setErr(null); setActionError(null); }} className="btn btn-ghost btn-sm">编辑</button>
+                  <button
                   onClick={() => {
                     select(c.id);
                     window.location.hash = "#/topics";
                   }}
                   className="btn btn-ghost btn-sm">
-                  浏览 Topics
-                </button>
-                <button
+                    Topics
+                  </button>
+                  <button
                   onClick={async () => {
                     const ok = window.confirm("删除集群 " + c.name + "？");
                     if (!ok) return;
@@ -169,10 +218,16 @@ export function ClustersPage() {
                     try { await remove(c.id); }
                     catch (e) { setActionError(e instanceof Error ? e.message : String(e)); }
                   }}
-                  className="btn btn-danger-ghost btn-sm ml-auto">
-                  移除
-                </button>
+                    className="btn btn-danger-ghost btn-sm">
+                    移除
+                  </button>
+                </div>
+                {h?.error && <div className="alert err w-full break-words !py-1.5" title={h.error}>探测失败：{h.error}</div>}
               </div>
+              {editing?.id === c.id && (
+                <ClusterEditor draft={editing} onChange={setEditing} onSubmit={() => void submit()}
+                  onCancel={() => setEditing(null)} busy={busy} err={err} />
+              )}
             </div>
           );
         })}
@@ -185,53 +240,10 @@ export function ClustersPage() {
         </div>
       )}
 
-      {/* 新增 / 编辑表单：宽幅三列 */}
-      {editing && (
-        <div className="card fade-up mt-3 p-4">
-          <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-100">{editing.id ? "编辑集群" : "新增集群"}</span>
-            {editing.id && <span className="mono text-[11px] text-[var(--text-faint)]">{editing.id}</span>}
-          </div>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-            <div><label className={labelCls}>名称</label>
-              <input className={inputCls} placeholder="如：生产集群" value={editing.name}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
-            <div><label className={labelCls}>Bootstrap（host:port，可逗号分隔多个）</label>
-              <input className={inputCls} placeholder="192.168.1.10:9092"
-                value={editing.bootstrap}
-                onChange={(e) => setEditing({ ...editing, bootstrap: e.target.value })} /></div>
-            <div><label className={labelCls}>Security Protocol</label>
-              <select className={inputCls} value={editing.securityProtocol}
-                onChange={(e) => setEditing({ ...editing, securityProtocol: e.target.value })}>
-                <option value="PLAINTEXT">PLAINTEXT</option>
-                <option value="SASL_PLAINTEXT">SASL_PLAINTEXT</option>
-                <option value="SASL_SSL">SASL_SSL（未实现）</option>
-              </select></div>
-            {editing.securityProtocol !== "PLAINTEXT" && (
-              <>
-                <div><label className={labelCls}>SASL Mechanism</label>
-                  <select className={inputCls} value={editing.saslMechanism}
-                    onChange={(e) => setEditing({ ...editing, saslMechanism: e.target.value })}>
-                    <option value="PLAIN">PLAIN</option>
-                    <option value="SCRAM-SHA-256">SCRAM-SHA-256</option>
-                    <option value="SCRAM-SHA-512">SCRAM-SHA-512</option>
-                  </select></div>
-                <div><label className={labelCls}>Username</label>
-                  <input className={inputCls} value={editing.saslUsername}
-                    onChange={(e) => setEditing({ ...editing, saslUsername: e.target.value })} /></div>
-                <div><label className={labelCls}>Password</label>
-                  <input type="password" className={inputCls} value={editing.saslPassword}
-                    onChange={(e) => setEditing({ ...editing, saslPassword: e.target.value })} /></div>
-              </>
-            )}
-          </div>
-          {err && <div className="alert err mt-2.5">{err}</div>}
-          <div className="mt-3 flex gap-2">
-            <button onClick={submit} disabled={busy} className="btn btn-send !w-auto !px-6">
-              {busy ? "保存…" : "保存并进入"}
-            </button>
-            <button onClick={() => setEditing(null)} className="btn btn-ghost !px-6">取消</button>
-          </div>
+      {editing && !editing.id && (
+        <div className="mt-3">
+          <ClusterEditor draft={editing} onChange={setEditing} onSubmit={() => void submit()}
+            onCancel={() => setEditing(null)} busy={busy} err={err} />
         </div>
       )}
 
