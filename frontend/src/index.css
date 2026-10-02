@@ -232,8 +232,6 @@ input[type="number"].field::-webkit-inner-spin-button { opacity: 0.4; }
 .producer-layout > .col-right { grid-column: 1 / -1; position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 12px; }
 .producer-layout > .col-right > .space-y-3 { display: contents; }
 .producer-layout > .col-right > .space-y-3 > * { margin-top: 0; }
-.topology-partition:hover > rect, .topology-partition:focus-visible > rect { stroke: #7dd3fc !important; stroke-width: 2.5 !important; }
-.topology-partition:focus-visible { outline: none; }
 .layout-2 { grid-template-columns: 320px minmax(0, 1fr); }
 .layout-2eq { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 1380px) {

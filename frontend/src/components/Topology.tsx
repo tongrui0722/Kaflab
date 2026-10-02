@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { KafkaTraceEvent } from "../types";
 
 export interface TopoPart {
@@ -9,120 +10,141 @@ export interface TopoPart {
 
 export interface TopoBroker { id?: number; host: string; port: number; }
 
-/** A metadata-backed topology. Replica/ISR membership and broker endpoints all come from Kafka Metadata. */
+/** Real Kafka metadata rendered as a partition-to-broker assignment matrix. */
 export function TopologyGraph({ topic = "test-topic", partitions = [], brokers = [], activePartition, actualRoute = false, actualBrokerId, onSelectPartition }:
   { topic?: string; partitions?: TopoPart[]; brokers?: TopoBroker[]; activePartition?: number; actualRoute?: boolean; actualBrokerId?: number; onSelectPartition?: (partition: number) => void }) {
+  const [focusedBroker, setFocusedBroker] = useState<number | null>(null);
+  const sortedPartitions = [...partitions].sort((a, b) => a.p - b.p);
   const brokerIds = [...new Set([
     ...brokers.map((b) => b.id).filter((id): id is number => id != null),
-    ...partitions.flatMap((p) => [...(p.replicas ?? []), ...(p.leader != null && p.leader >= 0 ? [p.leader] : [])]),
+    ...sortedPartitions.flatMap((p) => [...(p.replicas ?? []), ...(p.leader != null && p.leader >= 0 ? [p.leader] : [])]),
   ])].sort((a, b) => a - b);
-  const partitionCols = Math.min(4, Math.max(partitions.length, 1));
-  const partitionRows = Math.ceil(Math.max(partitions.length, 1) / partitionCols);
-  const partitionStartX = 184;
-  const partitionStrideX = 136;
-  const partitionStrideY = 128;
-  const brokerStartX = partitionStartX + partitionCols * partitionStrideX + 20;
-  const width = Math.max(760, brokerStartX + 152);
-  const height = Math.max(partitionRows * partitionStrideY + 70, brokerIds.length * 100 + 120, 300);
-  const topicX = 24;
-  const topicY = (height - 54) / 2;
-  const brokerY = (index: number) => 72 + index * 100;
-  const partY = (index: number) => 60 + Math.floor(index / partitionCols) * partitionStrideY;
-  const partX = (index: number) => partitionStartX + (index % partitionCols) * partitionStrideX;
-  const produceIsActual = actualRoute && activePartition != null;
-  const activeIndex = partitions.findIndex((p) => p.p === activePartition);
-  const active = activeIndex >= 0 ? partitions[activeIndex] : undefined;
-  const addrFor = (id: number) => {
-    const b = brokers.find((x) => x.id === id);
-    return b ? `${b.host}:${b.port}` : "地址未返回";
-  };
+  const underReplicated = sortedPartitions.filter((p) => {
+    const replicas = p.replicas?.length ? p.replicas : p.leader != null && p.leader >= 0 ? [p.leader] : [];
+    return replicas.some((id) => !(p.isr ?? []).includes(id));
+  }).length;
+  const noLeader = sortedPartitions.filter((p) => p.leader == null || p.leader < 0).length;
+  const leaderFor = (p: TopoPart) => p.leader != null && p.leader >= 0 ? p.leader : undefined;
+  const replicasFor = (p: TopoPart) => p.replicas?.length ? p.replicas : leaderFor(p) != null ? [leaderFor(p)!] : [];
+  const brokerFor = (id: number) => brokers.find((b) => b.id === id);
+  const leaderCount = (id: number) => sortedPartitions.filter((p) => p.leader === id).length;
+  const replicaCount = (id: number) => sortedPartitions.filter((p) => (p.replicas ?? []).includes(id)).length;
+  const isActualPartition = (p: TopoPart) => actualRoute && p.p === activePartition;
 
   return (
-    <section aria-label="Kafka Topic 分区与副本拓扑">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+    <section aria-label="Kafka Topic 分区副本分布">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="card-title !mb-0">真实分区拓扑</div>
-          <div className="mt-1 text-[11px] text-[var(--text-faint)]">Kafka Metadata：Leader、副本、ISR 与 Broker 地址 · 点击分区卡片可设为发送目标</div>
+          <div className="card-title !mb-0">分区副本分布</div>
+          <div className="mt-1 text-[11px] text-[var(--text-faint)]">
+            {topic} · Kafka Metadata · 点击分区设置发送目标，点击 Broker 高亮其分区
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1.5 text-[10px]">
-          <span className="badge run">Leader</span><span className="badge ok">ISR</span><span className="badge mute">Replica</span>
-          {produceIsActual && <span className="badge warn">本次发送路径</span>}
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+          <span className="badge run">Leader</span>
+          <span className="badge ok">副本在 ISR</span>
+          <span className="badge err">副本不在 ISR</span>
+          {focusedBroker != null && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setFocusedBroker(null)}>
+              清除 Broker 高亮
+            </button>
+          )}
         </div>
       </div>
-      {partitions.length === 0 ? (
+
+      {sortedPartitions.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--border-soft)] px-4 py-7 text-center text-[12px] text-slate-500">
-          {topic ? `未获取到 Topic「${topic}」的分区 Metadata。` : "输入 Topic 并连接集群后显示真实拓扑。"}
+          {topic ? `未获取到 Topic「${topic}」的分区 Metadata。` : "输入 Topic 并连接集群后显示分区副本分布。"}
         </div>
       ) : (
-        <div className="scroll-box overflow-x-auto rounded-xl border border-[var(--border-soft)] bg-black/15">
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${topic} 的 Kafka 分区、副本和 Broker 拓扑`} className="block min-w-full">
-            <defs>
-              <marker id="topology-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
-              </marker>
-              <marker id="topology-arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8" />
-              </marker>
-            </defs>
-            <text x={topicX} y="30" fill="#94a3b8" fontSize="11">TOPIC</text>
-            <rect x={topicX} y={topicY} width="124" height="54" rx="10" fill="#111c30" stroke="#334155" />
-            <text x={topicX + 62} y={topicY + 23} textAnchor="middle" fill="#e2e8f0" fontSize="12" fontWeight="700">{topic.length > 17 ? `${topic.slice(0, 16)}…` : topic}</text>
-            <text x={topicX + 62} y={topicY + 41} textAnchor="middle" fill="#94a3b8" fontSize="10">{partitions.length} 个分区</text>
-            <text x={partitionStartX} y="30" fill="#94a3b8" fontSize="11">PARTITIONS · LEADER / REPLICA / ISR</text>
-            <text x={brokerStartX} y="30" fill="#94a3b8" fontSize="11">BROKERS</text>
+        <>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {[
+              ["分区", String(sortedPartitions.length)],
+              ["Broker", String(brokerIds.length)],
+              ["副本总数", String(sortedPartitions.reduce((n, p) => n + replicasFor(p).length, 0))],
+              ["副本异常", String(underReplicated)],
+              ["无 Leader", String(noLeader)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+                <div className="text-[10px] text-[var(--text-faint)]">{label}</div>
+                <div className={`mono mt-0.5 text-[14px] font-semibold ${label === "副本异常" && underReplicated > 0 ? "text-rose-300" : "text-slate-100"}`}>{value}</div>
+              </div>
+            ))}
+          </div>
 
-            {partitions.map((p, i) => {
-              const x = partX(i);
-              const y = partY(i);
-              const selected = p.p === activePartition;
-              const isr = p.isr ?? [];
-              const replicas = p.replicas?.length ? p.replicas : p.leader != null && p.leader >= 0 ? [p.leader] : [];
-              return (
-                <g key={p.p} className="topology-partition" role={onSelectPartition ? "button" : undefined} tabIndex={onSelectPartition ? 0 : undefined}
-                  aria-label={onSelectPartition ? `选择分区 ${p.p}，Leader Broker ${p.leader ?? "未知"}` : undefined}
-                  style={onSelectPartition ? { cursor: "pointer" } : undefined}
-                  onClick={onSelectPartition ? () => onSelectPartition(p.p) : undefined}
-                  onKeyDown={onSelectPartition ? (event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelectPartition(p.p);
-                    }
-                  } : undefined}>
-                  <path d={`M ${topicX + 124} ${topicY + 27} C ${topicX + 150} ${topicY + 27}, ${x - 28} ${y + 12}, ${x} ${y + 12}`} fill="none" stroke={selected ? "#38bdf8" : "#475569"} strokeWidth={selected ? 2 : 1.2} markerEnd={selected ? "url(#topology-arrow-active)" : "url(#topology-arrow)"} />
-                  {replicas.map((id) => {
-                    const targetX = brokerStartX;
-                    const targetY = brokerY(brokerIds.indexOf(id)) + 44;
-                    const isLeader = p.leader === id;
-                    const inIsr = isr.includes(id);
-                    return <path key={`${p.p}-${id}`} d={`M ${x + 112} ${y + 16} C ${x + 145} ${y + 16}, ${targetX - 30} ${targetY}, ${targetX} ${targetY}`} fill="none" stroke={selected && isLeader && produceIsActual ? "#38bdf8" : inIsr ? "#34d399" : "#475569"} strokeWidth={selected && isLeader && produceIsActual ? 2.5 : 1.2} strokeDasharray={inIsr ? undefined : "4 4"} markerEnd={selected && isLeader && produceIsActual ? "url(#topology-arrow-active)" : "url(#topology-arrow)"} />;
+          <div className="scroll-box overflow-x-auto rounded-xl border border-[var(--border-soft)]">
+            <table className="w-full min-w-[720px] border-collapse text-left text-[11px]">
+              <thead className="bg-[var(--panel-3)]">
+                <tr>
+                  <th className="sticky left-0 z-10 min-w-[130px] border-b border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2 font-medium text-slate-400">Partition</th>
+                  <th className="min-w-[100px] border-b border-[var(--border-soft)] px-3 py-2 font-medium text-slate-400">Leader</th>
+                  {brokerIds.map((id) => {
+                    const broker = brokerFor(id);
+                    const focused = focusedBroker === id;
+                    return (
+                      <th key={id} className={`min-w-[155px] border-b border-[var(--border-soft)] px-2 py-1.5 ${focused ? "bg-sky-500/10" : ""}`}>
+                        <button type="button" aria-pressed={focused} onClick={() => setFocusedBroker(focused ? null : id)}
+                          className={`w-full rounded-md px-1.5 py-1 text-left transition-colors hover:bg-sky-500/10 ${focused ? "text-sky-200" : "text-slate-300"}`}>
+                          <span className="block font-semibold">Broker {id}{id === actualBrokerId && actualRoute ? " · 本次发送" : ""}</span>
+                          <span className="mono mt-0.5 block truncate text-[10px] text-[var(--text-faint)]">{broker ? `${broker.host}:${broker.port}` : "地址未返回"}</span>
+                          <span className="mt-0.5 block text-[10px] font-normal text-slate-500">Leader {leaderCount(id)} · Replica {replicaCount(id)}</span>
+                        </button>
+                      </th>
+                    );
                   })}
-                  <rect x={x} y={y} width="112" height="106" rx="10" fill={selected ? "#10243a" : "#0e1727"} stroke={selected ? "#38bdf8" : "#334155"} strokeWidth={selected ? 1.6 : 1} />
-                  <text x={x + 12} y={y + 22} fill={selected ? "#bae6fd" : "#e2e8f0"} fontSize="12" fontWeight="700">Partition {p.p}</text>
-                  <text x={x + 12} y={y + 42} fill="#94a3b8" fontSize="10">Leader</text>
-                  <text x={x + 12} y={y + 58} fill={p.leader == null || p.leader < 0 ? "#fb7185" : "#c4b5fd"} fontSize="11" fontWeight="600">Broker {p.leader ?? "—"}</text>
-                  <text x={x + 12} y={y + 78} fill="#94a3b8" fontSize="10">副本 {replicas.length} · ISR {isr.length}</text>
-                  {selected && produceIsActual && <text x={x + 12} y={y + 96} fill="#38bdf8" fontSize="9">本次发送</text>}
-                </g>
-              );
-            })}
-
-            {brokerIds.map((id, i) => {
-              const broker = brokers.find((b) => b.id === id);
-              const isTarget = produceIsActual && (actualBrokerId ?? active?.leader) === id;
-              const leaderCount = partitions.filter((p) => p.leader === id).length;
-              const replicaCount = partitions.filter((p) => (p.replicas ?? []).includes(id)).length;
-              return (
-                <g key={id}>
-                  <rect x={brokerStartX} y={brokerY(i)} width="132" height="88" rx="10" fill={isTarget ? "#102a40" : "#0e1727"} stroke={isTarget ? "#38bdf8" : "#334155"} strokeWidth={isTarget ? 1.7 : 1} />
-                  <text x={brokerStartX + 66} y={brokerY(i) + 23} textAnchor="middle" fill={isTarget ? "#bae6fd" : "#e2e8f0"} fontSize="12" fontWeight="700">Broker {id}{isTarget ? " · 目标" : ""}</text>
-                  <text x={brokerStartX + 66} y={brokerY(i) + 43} textAnchor="middle" fill="#94a3b8" fontSize="9">{addrFor(id)}</text>
-                  <text x={brokerStartX + 66} y={brokerY(i) + 67} textAnchor="middle" fill="#64748b" fontSize="10">Leader {leaderCount} · Replica {replicaCount}</text>
-                </g>
-              );
-            })}
-            <text x={topicX} y={height - 18} fill="#64748b" fontSize="10">实线绿色 = 位于 ISR · 灰色虚线 = 副本未进入 ISR · 蓝色 = 本次 Produce 实际路径</text>
-          </svg>
-        </div>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPartitions.map((p) => {
+                  const leader = leaderFor(p);
+                  const replicaIds = replicasFor(p);
+                  const inSyncIds = p.isr ?? [];
+                  const containsBroker = focusedBroker == null || replicaIds.includes(focusedBroker);
+                  const selected = p.p === activePartition;
+                  const lastSent = isActualPartition(p);
+                  return (
+                    <tr key={p.p} className={`border-b border-[var(--border-soft)] last:border-b-0 transition-colors ${selected ? "bg-sky-500/[0.07]" : "hover:bg-white/[0.02]"} ${!containsBroker ? "opacity-35" : ""}`}>
+                      <td className={`sticky left-0 z-[1] border-r border-[var(--border-soft)] px-3 py-2 ${selected ? "bg-[#10243a]" : "bg-[var(--panel)]"}`}>
+                        <button type="button" aria-pressed={selected} disabled={!onSelectPartition}
+                          onClick={() => onSelectPartition?.(p.p)}
+                          className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-left transition-colors ${selected ? "font-semibold text-sky-200" : "text-slate-300 hover:bg-sky-500/10 hover:text-sky-100"} disabled:cursor-default`}>
+                          <span className="mono">P{p.p}</span>
+                          {lastSent && <span className="badge warn !px-1.5 !py-0">已发送</span>}
+                          {selected && !lastSent && <span className="badge run !px-1.5 !py-0">发送目标</span>}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        {leader == null ? <span className="badge err">无 Leader</span> : (
+                          <span className={`badge ${lastSent && leader === actualBrokerId ? "run" : "mute"}`}>Broker {leader}</span>
+                        )}
+                      </td>
+                      {brokerIds.map((id) => {
+                        const isReplica = replicaIds.includes(id);
+                        if (!isReplica) return <td key={id} className={`px-2 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}><span className="text-slate-700">—</span></td>;
+                        const isLeader = leader === id;
+                        const inSync = inSyncIds.includes(id);
+                        const isActualLeader = lastSent && isLeader && actualBrokerId === id;
+                        return (
+                          <td key={id} className={`px-2 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}>
+                            <div className={`flex min-h-8 items-center gap-1.5 rounded-md border px-2 py-1 ${isActualLeader ? "border-sky-400/60 bg-sky-500/15" : isLeader ? "border-violet-400/30 bg-violet-500/[0.08]" : inSync ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-rose-500/30 bg-rose-500/[0.08]"}`}>
+                              <span className={`font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "Leader" : "Replica"}</span>
+                              <span className={`ml-auto text-[9px] ${inSync ? "text-emerald-300" : "text-rose-300"}`}>{inSync ? "ISR" : "不同步"}</span>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[var(--text-faint)]">
+            <span>Leader 是分区当前写入节点；ISR 表示已跟上 Leader 的副本。点击 Broker 表头可高亮其 Leader/Replica 分区。</span>
+            {focusedBroker != null && <span className="mono text-sky-300">当前聚焦 Broker {focusedBroker}</span>}
+          </div>
+        </>
       )}
     </section>
   );
