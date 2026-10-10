@@ -166,7 +166,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
       {/* 查询条件 */}
       <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-3.5 sm:p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[12px] font-semibold text-slate-200">查询条件</div>
+        <div className="text-[12px] font-semibold text-slate-700">查询条件</div>
         <div className="text-[10px] text-[var(--text-faint)]">选择读取位置和过滤条件</div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -259,10 +259,10 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
                     <tr key={`${m.partition}-${m.offset}`} onClick={() => { setSel(i); setViewJson(true); }}
                       className={`cursor-pointer ${sel === i ? "!bg-[rgba(56,189,248,0.09)]" : ""}`}>
                       <td className="text-center text-slate-400">{m.partition}</td>
-                      <td className="text-sky-300">{m.offset}</td>
+                      <td className="text-sky-700">{m.offset}</td>
                       <td className="whitespace-nowrap text-slate-400">{m.timestampText ?? "—"}</td>
-                      <td className="max-w-[120px] truncate text-slate-300">{m.key ?? <span className="text-slate-600">null</span>}</td>
-                      <td className="max-w-[260px] truncate text-slate-200">{summary(m.value)}</td>
+                      <td className="max-w-[120px] truncate text-slate-600">{m.key ?? <span className="text-slate-600">null</span>}</td>
+                      <td className="max-w-[260px] truncate text-slate-700">{summary(m.value)}</td>
                       <td className="text-center">{m.headers.length > 0 ? <span className="badge mute">{m.headers.length}</span> : <span className="text-slate-600">—</span>}</td>
                       <td className="whitespace-nowrap text-right text-slate-500">{fmtSize(m.size)}</td>
                     </tr>
@@ -294,17 +294,17 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
           <div className="absolute inset-0 bg-black/50" />
           <div className="absolute inset-y-0 right-0 flex w-full max-w-[520px] flex-col border-l border-[var(--border-soft)] bg-[var(--panel)] p-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold text-slate-100">消息详情</span>
+              <span className="text-[13px] font-bold text-slate-800">消息详情</span>
               <span className="mono text-[11px] text-slate-500">分区 {selMsg.partition} · Offset {selMsg.offset}</span>
-              <button onClick={() => setSel(null)} className="ml-auto rounded px-2 py-0.5 text-slate-400 hover:bg-white/10 hover:text-slate-100">✕</button>
+              <button onClick={() => setSel(null)} className="ml-auto rounded px-2 py-0.5 text-slate-400 hover:bg-slate-900/[0.06] hover:text-slate-800">✕</button>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11.5px]">
-              <div className="text-slate-500">Topic</div><div className="mono break-all text-slate-200">{selMsg.topic}</div>
-              <div className="text-slate-500">时间</div><div className="mono text-slate-200">{selMsg.timestampText ?? "—"}{selMsg.timestamp != null && <span className="text-slate-600"> · {selMsg.timestamp}</span>}</div>
+              <div className="text-slate-500">Topic</div><div className="mono break-all text-slate-700">{selMsg.topic}</div>
+              <div className="text-slate-500">时间</div><div className="mono text-slate-700">{selMsg.timestampText ?? "—"}{selMsg.timestamp != null && <span className="text-slate-600"> · {selMsg.timestamp}</span>}</div>
               <div className="text-slate-500">Key</div>
-              <div className="mono flex items-center gap-1.5 break-all text-slate-200">{selMsg.key ?? <span className="text-slate-600">null</span>}
-                {selMsg.key && <button onClick={() => copy(selMsg.key as string, "k")} className="shrink-0 text-[10px] text-sky-300/70 hover:text-sky-200">{copied === "k" ? "✓" : "复制"}</button>}</div>
-              <div className="text-slate-500">大小</div><div className="mono text-slate-200">{fmtSize(selMsg.size)}</div>
+              <div className="mono flex items-center gap-1.5 break-all text-slate-700">{selMsg.key ?? <span className="text-slate-600">null</span>}
+                {selMsg.key && <button onClick={() => copy(selMsg.key as string, "k")} className="shrink-0 text-[10px] text-sky-700/70 hover:text-sky-700">{copied === "k" ? "✓" : "复制"}</button>}</div>
+              <div className="text-slate-500">大小</div><div className="mono text-slate-700">{fmtSize(selMsg.size)}</div>
             </div>
             <div className="mt-2 flex items-center gap-1.5">
               <span className="text-[11px] text-slate-500">Value</span>
@@ -312,7 +312,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
                 <button onClick={() => setViewJson(true)} className={viewJson ? "on" : ""}>格式化</button>
                 <button onClick={() => setViewJson(false)} className={!viewJson ? "on" : ""}>原文</button>
               </span>
-              {selMsg.value && <button onClick={() => copy(selMsg.value as string, "v")} className="ml-auto text-[10.5px] text-sky-300/70 hover:text-sky-200">{copied === "v" ? "已复制 ✓" : "复制"}</button>}
+              {selMsg.value && <button onClick={() => copy(selMsg.value as string, "v")} className="ml-auto text-[10.5px] text-sky-700/70 hover:text-sky-700">{copied === "v" ? "已复制 ✓" : "复制"}</button>}
             </div>
             <pre className="codebox mt-1 max-h-56 flex-none overflow-auto whitespace-pre-wrap break-all">{viewJson ? (pretty ?? selMsg.value ?? "null") : (selMsg.value ?? "null")}</pre>
             <div className="mt-2 text-[11px] text-slate-500">Headers（{selMsg.headers.length}）</div>
@@ -320,9 +320,9 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
               {selMsg.headers.length === 0 && <div className="py-2 text-center text-[11px] text-slate-600">无 Headers</div>}
               {selMsg.headers.map((h, i) => (
                 <div key={i} className="mono flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2 py-1.5 text-[11px]">
-                  <span className="shrink-0 text-sky-300">{h.key}</span>
-                  <span className="min-w-0 flex-1 truncate text-slate-300" title={h.value ?? "null"}>{h.value ?? <span className="text-slate-600">null</span>}</span>
-                  {h.value != null && <button onClick={() => copy(h.value as string, `h${i}`)} className="shrink-0 text-[10px] text-sky-300/70 hover:text-sky-200">{copied === `h${i}` ? "✓" : "复制"}</button>}
+                  <span className="shrink-0 text-sky-700">{h.key}</span>
+                  <span className="min-w-0 flex-1 truncate text-slate-600" title={h.value ?? "null"}>{h.value ?? <span className="text-slate-600">null</span>}</span>
+                  {h.value != null && <button onClick={() => copy(h.value as string, `h${i}`)} className="shrink-0 text-[10px] text-sky-700/70 hover:text-sky-700">{copied === `h${i}` ? "✓" : "复制"}</button>}
                 </div>
               ))}
             </div>

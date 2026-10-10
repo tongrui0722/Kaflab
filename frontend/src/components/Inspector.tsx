@@ -19,7 +19,7 @@ function redact(value: unknown): unknown {
 
 function Tree({ data, depth = 0 }: { data: unknown; depth?: number }) {
   if (data == null) return <span className="text-slate-500">null</span>;
-  if (typeof data !== "object") return <span className="mono text-slate-200">{String(data)}</span>;
+  if (typeof data !== "object") return <span className="mono text-slate-700">{String(data)}</span>;
   if (Array.isArray(data))
     return (
       <div className="ml-3 border-l border-[var(--border-soft)] pl-2">
@@ -34,7 +34,7 @@ function Tree({ data, depth = 0 }: { data: unknown; depth?: number }) {
     <div className="ml-3 border-l border-[var(--border-soft)] pl-2">
       {Object.entries(data as Record<string, unknown>).map(([k, v]) => (
         <details key={k} open={depth < 2} className="py-[1px] text-[12px]">
-          <summary className="cursor-pointer text-slate-400 hover:text-slate-200">▸ {k}</summary>
+          <summary className="cursor-pointer text-slate-400 hover:text-slate-700">▸ {k}</summary>
           <Tree data={v} depth={depth + 1} />
         </details>
       ))}
@@ -92,7 +92,7 @@ export function Inspector({ events, stepIndex, preferResponse }: { events: Kafka
           </button>
         ))}
       </div>
-      <div className="text-[12.5px] font-semibold text-slate-100">
+      <div className="text-[12.5px] font-semibold text-slate-800">
         {apiLabel} {tab === "req" ? "Request" : "Response"}
       </div>
       <div className="mt-1 divide-y divide-[var(--border-soft)]">

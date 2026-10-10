@@ -7,8 +7,8 @@ export function TraceTimeline({ steps, selected, onSelect, total }:
   return (
     <div>
       <div className="card-t">
-        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[rgba(56,189,248,0.14)] text-[11px] text-sky-300">▶</span>
-        <span className="text-[13px] font-bold text-slate-100">Producer</span>
+        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[rgba(56,189,248,0.14)] text-[11px] text-sky-700">▶</span>
+        <span className="text-[13px] font-bold text-slate-800">Producer</span>
         <span className="text-[11px] text-[var(--text-faint)]">完整链路</span>
         <span className="ml-auto flex items-center gap-1.5">
           <span className="badge ok">成功</span>
@@ -33,12 +33,12 @@ export function TraceTimeline({ steps, selected, onSelect, total }:
                 <span className="ml-5 min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className="mono text-[11px] text-[var(--text-faint)]">{s.index}</span>
-                    <span className={`truncate text-[12.5px] font-semibold ${s.status === "error" ? "text-rose-200" : "text-slate-100"}`}>{s.title}</span>
-                    {errText && <span className="mono truncate text-[11px] text-rose-300">{errText}</span>}
+                    <span className={`truncate text-[12.5px] font-semibold ${s.status === "error" ? "text-rose-200" : "text-slate-800"}`}>{s.title}</span>
+                    {errText && <span className="mono truncate text-[11px] text-rose-600">{errText}</span>}
                   </span>
                   <span className="mono ml-5 block truncate text-[11px] text-[var(--text-faint)]">{s.desc}</span>
                 </span>
-                <span className="mono shrink-0 text-[11px] text-emerald-300/90">{s.latency}</span>
+                <span className="mono shrink-0 text-[11px] text-emerald-700/90">{s.latency}</span>
               </button>
             </li>
           );
@@ -46,7 +46,7 @@ export function TraceTimeline({ steps, selected, onSelect, total }:
       </ol>
       <div className="mt-2 flex items-center justify-between border-t border-[var(--border-soft)] px-2 pt-2 text-[12px]">
         <span className="text-[var(--text-faint)]">Total</span>
-        <span className="mono font-bold text-emerald-300">{total ?? "—"}</span>
+        <span className="mono font-bold text-emerald-700">{total ?? "—"}</span>
       </div>
     </div>
   );

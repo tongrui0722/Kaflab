@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DEFAULT_PRODUCE, clusterQuery, type ClusterStatus, type ProduceForm } from "../api/producer";
 import { useConn } from "../conn";
 import { reportConn } from "../App";
@@ -7,7 +7,7 @@ import { TopologyGraph, FullTimeline } from "../components/Topology";
 import { TraceTimeline } from "../components/TraceTimeline";
 import { KV, PageHeader, StatusBadge } from "../components/bits";
 import { useProducerSession } from "../api/producer";
-import { friendlyWriteError } from "../auth";
+import { friendlyWriteError, useAuth } from "../auth";
 import { useLab } from "../lab";
 import { stepsFromEvents, fmtTime } from "../mock/effect";
 import type { RecentMsg } from "../types";
@@ -31,6 +31,8 @@ async function getJSON<T>(path: string): Promise<T> {
 export function ProducerPage() {
   const { session, events, running, sendError, wsDown, send } = useProducerSession();
   const { conn } = useConn();
+  const { mode: authMode } = useAuth();
+  const readonly = authMode === "readonly";
   const { requireLab } = useLab();
   const connFields = () => ({
     bootstrap: conn.bootstrap,
@@ -47,10 +49,23 @@ export function ProducerPage() {
       return raw ? JSON.parse(raw) as RecentMsg[] : [];
     } catch { return []; }
   });
+  const activeRecentId = useRef<string | null>(null);
   const [mode, setMode] = useState<"single" | "batch">("single");
   const [batchCount, setBatchCount] = useState(10);
   const [sending, setSending] = useState(false);
   const [showConnDetail, setShowConnDetail] = useState(false);
+  const [topicOptions, setTopicOptions] = useState<string[]>([]);
+  const [topicOpen, setTopicOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [copiedWhat, setCopiedWhat] = useState<string | null>(null);
+
+  const copyText = async (tag: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWhat(tag);
+      window.setTimeout(() => setCopiedWhat((c) => (c === tag ? null : c)), 1500);
+    } catch { /* ignore */ }
+  };
   const [copied, setCopied] = useState(false);
   const [cluster, setCluster] = useState<ClusterStatus | null>(null);
   const [clusterErr, setClusterErr] = useState<string | null>(null);
@@ -105,8 +120,10 @@ export function ProducerPage() {
     const offset = Number(doneResp["offset"] ?? -1);
     const latency = doneResp["totalMs"] != null ? `${doneResp["totalMs"]}ms` : "—";
     const traceId = (doneEv ?? failEv)?.traceId ?? "";
+    const currentId = activeRecentId.current;
+    if (!currentId) return;
     setRecent((prev) => {
-      const i = prev.findIndex((r) => r.status === "RUNNING");
+      const i = prev.findIndex((r) => r.id === currentId);
       if (i < 0) return prev;
       const next = [...prev];
       next[i] = { ...next[i], status: ok ? "SUCCESS" : "ERROR",
@@ -116,6 +133,7 @@ export function ProducerPage() {
       try { localStorage.setItem("kcl-recent", JSON.stringify(next.slice(0, 30))); } catch { /* ignore */ }
       return next;
     });
+    activeRecentId.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doneEv, failEv]);
   // 失败 → Trace 自动选中出错步骤，右侧切到 Response（成功不抢用户当前选择）
@@ -132,6 +150,8 @@ export function ProducerPage() {
     : events.find((e) => e.partition != null && e.topic === form.topic)?.partition
       ?? lastSentPartition
       ?? cluster?.partitions[0]?.partition ?? 0;
+  const previewPartition = cluster?.partitions.find((p) => p.partition === activePartition);
+  const previewLeader = cluster?.brokers.find((b) => b.id === previewPartition?.leader);
   const leaderOf = (p?: number) => cluster?.partitions.find((x) => x.partition === p)?.leader;
   const leaderAddr = (p?: number) => {
     const id = leaderOf(p);
@@ -162,7 +182,6 @@ export function ProducerPage() {
     }
   };
 
-  useEffect(() => { probe(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   // Topics 页跳过来的预填 / 全局集群切换 → 刷新分区
   useEffect(() => {
     try {
@@ -178,6 +197,21 @@ export function ProducerPage() {
   // 全局集群切换 → 自动刷新本页分区
   useEffect(() => { probe(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
     [conn.bootstrap, conn.securityProtocol, conn.saslMechanism, conn.saslUsername, conn.saslPassword, form.topic]);
+  // 主题下拉候选：当前集群 Topic 列表，供输入过滤选择
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const d = await getJSON<{ topics?: { topic: string }[] }>(
+          `/api/clusters/${conn.id}/topics`);
+        if (!dead) {
+          setTopicOptions(
+            [...new Set((d.topics ?? []).map((t) => t.topic).filter(Boolean))].sort());
+        }
+      } catch { if (!dead) setTopicOptions([]); }
+    })();
+    return () => { dead = true; };
+  }, [conn.id]);
 
   const randStr = (n = 16) => {
     const cs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
@@ -193,18 +227,42 @@ export function ProducerPage() {
   const buildKV = (key: string, value: string) => ({ key, value, keyHex: "", valueHex: "" });
 
   const doOneSend = async (payload: ProduceForm) => {
-    await send({ ...payload, ...connFields() });
+    const payloadSize = new TextEncoder().encode(payload.value).length;
+    const id = `r-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    activeRecentId.current = id;
     pushRecent({
-      id: `r-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, topic: payload.topic,
+      id, topic: payload.topic,
       partition: payload.partition === "auto" ? -1 : Number(payload.partition),
       offset: -1, latency: "…", time: fmtTime(Date.now()),
       status: "RUNNING" as const, traceId: "", events: [],
       key: payload.key, value: payload.value,
-      size: valueSize || undefined,
+      size: payloadSize || undefined,
     });
+    await send({ ...payload, ...connFields() });
   };
 
+  const resendRecord = async (r: RecentMsg) => {
+    setSendFail(null);
+    setSending(true);
+    try {
+      if (r.key != null) setForm((f) => ({ ...f, key: r.key as string, value: r.value ?? f.value }));
+      await doOneSend({ ...form, key: r.key ?? form.key, value: r.value ?? form.value, keyHex: "", valueHex: "" });
+    } catch (e) { setSendFail(e instanceof Error ? e.message : String(e)); }
+    finally { setSending(false); }
+  };
+
+  useEffect(() => {
+    if (!detailId) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setDetailId(null); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [detailId]);
+
   const onSend = async () => {
+    if (!form.topic.trim()) {
+      setSendFail("请先填写 Topic（可输入新名称，或从下拉列表选择）。");
+      return;
+    }
     setSendFail(null);
     setSending(true);
     try {
@@ -220,17 +278,26 @@ export function ProducerPage() {
         const key = form.key || `k-${randStr(6)}`;
         return buildKV(key, form.value || randStr(32));
       });
-      await send({ ...form, ...connFields(), messages });
+      const id = `r-${Date.now()}-b${n}`;
+      activeRecentId.current = id;
       pushRecent({
-        id: `r-${Date.now()}-b${n}`, topic: form.topic,
+        id, topic: form.topic,
         partition: form.partition === "auto" ? -1 : Number(form.partition),
         offset: -1, latency: "…", time: fmtTime(Date.now()),
         status: "RUNNING" as const, traceId: "", events: [],
         key: messages[0].key, value: messages[0].value,
-        size: valueSize || undefined,
+        size: messages.reduce((sum, m) => sum + new TextEncoder().encode(m.value).length, 0),
       });
+      await send({ ...form, ...connFields(), messages });
     } catch (e) {
       setSendFail(friendlyWriteError(e));
+      const currentId = activeRecentId.current;
+      if (currentId) setRecent((prev) => {
+        const next = prev.map((r) => r.id === currentId ? { ...r, status: "ERROR" as const, latency: "—" } : r);
+        try { localStorage.setItem("kcl-recent", JSON.stringify(next.slice(0, 30))); } catch { /* ignore */ }
+        return next;
+      });
+      activeRecentId.current = null;
     } finally {
       setSending(false);
     }
@@ -238,19 +305,20 @@ export function ProducerPage() {
 
   const connected = !!cluster?.connected;
   const statusBadge = running ? "pending"
-    : failEv || sendError || sendFail ? "error"
-    : doneEv ? "success" : "pending";
+    : failEv || sendError || sendFail || session?.status === "error" ? "error"
+    : doneEv || session?.status === "success" ? "success" : "pending";
   const statusText = running ? "发送中"
-    : failEv || sendError || sendFail ? "失败"
-    : doneEv ? "成功" : "待发送";
+    : failEv || sendError || sendFail || session?.status === "error" ? "失败"
+    : doneEv || session?.status === "success" ? "成功" : "待发送";
 
   return (
-    <div>
+    <div className="producer-page">
       <PageHeader title="生产消息" desc="构造消息并发送到 Kafka，实时观察分区路由、Broker 确认和 Offset"
-        right={<><StatusBadge status={statusBadge} text={statusText} />{doneEv && <span className="mono text-[11px] text-slate-500">Offset: {String(doneResp["offset"] ?? "")}</span>}</>} />
+      right={<><StatusBadge status={statusBadge} text={statusText} />{session?.id && <span className="mono text-[10.5px] text-slate-500" title="本次 Producer Session">{session.id}</span>}{doneEv && <span className="mono text-[11px] text-slate-500">Offset: {String(doneResp["offset"] ?? "")}</span>}</>} />
+    <div className="producer-workspace">
     <div className="layout-grid producer-layout">
       {/* 左：配置（连接 / 消息 / 发送模式分区展示） */}
-      <div className="space-y-3">
+      <div className="producer-column producer-config-column">
         <div className="card p-3">
           <div className="mb-2 flex items-center gap-2">
             <span className="card-title !mb-0">连接</span>
@@ -258,7 +326,7 @@ export function ProducerPage() {
             <button onClick={probe} disabled={probing} title="刷新分区"
               className="btn btn-ghost btn-sm ml-auto !px-2">↻</button>
           </div>
-          <div className="mono truncate rounded-lg bg-black/25 px-2 py-1.5 text-[11px] text-slate-300" title={`${conn.bootstrap} · ${conn.securityProtocol}`}>
+          <div className="mono truncate rounded-lg border border-[#c9d6e3] bg-white px-2 py-1.5 text-[11px] text-slate-700" title={`${conn.bootstrap} · ${conn.securityProtocol}`}>
             {conn.bootstrap}
           </div>
           {clusterErr && (
@@ -289,8 +357,42 @@ export function ProducerPage() {
             <span className="badge mute">{mode === "batch" ? `批量 · ${batchCount} 条` : "单条消息"}</span>
           </div>
           <div><label className={labelCls}>Topic</label>
-            <input className={`${inputCls} mono`} value={form.topic}
-              onChange={(e) => setForm({ ...form, topic: e.target.value, partition: "auto" })} /></div>
+            <div className="relative">
+              <input className={`${inputCls} mono`} value={form.topic}
+                placeholder="输入或选择 Topic"
+                onFocus={() => setTopicOpen(true)}
+                onBlur={() => window.setTimeout(() => setTopicOpen(false), 150)}
+                onChange={(e) => { setTopicOpen(true); setForm({ ...form, topic: e.target.value, partition: "auto" }); }} />
+              {topicOpen && (form.topic.trim() || topicOptions.length > 0) && (() => {
+                const q = form.topic.trim().toLowerCase();
+                const matched = topicOptions.filter((t) => !q || t.toLowerCase().includes(q)).slice(0, 8);
+                const exact = matched.some((t) => t === form.topic.trim());
+                if (!matched.length && !form.topic.trim()) return null;
+                return (
+                  <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-56 overflow-auto rounded-lg border border-[var(--border)] bg-white py-1 shadow-lg">
+                    {matched.map((t) => (
+                      <button key={t} onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setForm({ ...form, topic: t, partition: "auto" }); setTopicOpen(false); }}
+                        title={t}
+                        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-900/[0.04]">
+                        <span className="mono min-w-0 flex-1 truncate text-[12px] text-slate-700">{t}</span>
+                        {t.startsWith("_") && <span className="badge mute shrink-0">系统</span>}
+                      </button>
+                    ))}
+                    {form.topic.trim() && !exact && (
+                      <button onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setTopicOpen(false)}
+                        title={`直接使用“${form.topic.trim()}”`}
+                        className="flex w-full items-center gap-2 border-t border-[var(--border-soft)] px-2.5 py-1.5 text-left hover:bg-slate-900/[0.04]">
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-slate-500">
+                          直接使用“<span className="mono text-slate-700">{form.topic.trim()}</span>”
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+            </div></div>
           <div className="mt-2"><label className={labelCls}>Key</label>
             <input className={`${inputCls} mono`} value={form.key} placeholder="空 = 随机 Key"
               onChange={(e) => setForm({ ...form, key: e.target.value })} /></div>
@@ -306,13 +408,15 @@ export function ProducerPage() {
           <details className="mt-2 rounded-lg bg-black/20 px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">更多参数</summary>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <div><label className={labelCls}>目标分区</label>
+            <div className="min-w-0"><label className={labelCls}>目标分区</label>
               <select className={inputCls} value={form.partition}
+                title={form.partition === "auto" ? "自动：发送前按集群 Metadata 选择首个健康分区"
+                  : `P${form.partition} · Leader ${leaderOf(Number(form.partition)) ?? "未知"}`}
                 onChange={(e) => setForm({ ...form, partition: e.target.value })}>
-                <option value="auto">自动（首个健康分区）</option>
+                <option value="auto">自动</option>
                 {(cluster?.partitions ?? []).map((p) => (
                   <option key={p.partition} value={String(p.partition)}>
-                    {p.partition}（leader {p.leader}）
+                    P{p.partition} · L{p.leader}
                   </option>
                 ))}
               </select>
@@ -325,7 +429,7 @@ export function ProducerPage() {
                 </div>
               )}
             </div>
-            <div><label className={labelCls}>Acks</label>
+            <div className="min-w-0"><label className={labelCls}>Acks</label>
               <select className={inputCls} value={form.acks}
                 onChange={(e) => setForm({ ...form, acks: e.target.value })}>
                 <option value="all">all</option><option value="1">1</option><option value="0">0</option>
@@ -361,7 +465,7 @@ export function ProducerPage() {
               <input type="number" min={2} max={100} className={`${inputCls} mono`} value={batchCount}
                 onChange={(e) => setBatchCount(Number(e.target.value))} /></div>
           )}
-          <button onClick={() => requireLab(() => { void onSend(); })} disabled={running || sending}
+          <button onClick={() => requireLab(() => { void onSend(); })} disabled={readonly || running || sending || !form.topic.trim()} title={readonly ? "只读巡检模式下禁止发送消息" : !form.topic.trim() ? "请先填写 Topic" : undefined}
             className={`btn btn-send mt-3 ${!running && !sending && (failEv || sendError || sendFail) ? "is-failed" : ""}`}>
             {sending || running ? "正在发送…" : failEv || sendError || sendFail ? "重试发送" : mode === "batch" ? `发送 ${batchCount} 条` : "发送消息"}
           </button>
@@ -376,11 +480,51 @@ export function ProducerPage() {
             </div>
           )}
         </div>
+
+        <div className="card producer-route-card p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="card-title !mb-0">路由预览</span>
+            <span className={`badge ${previewPartition && (previewPartition.isr?.length ?? 0) === (previewPartition.replicas?.length ?? 0) ? "ok" : "mute"}`}>
+              {form.partition === "auto" ? "自动分区" : `固定 P${activePartition}`}
+            </span>
+          </div>
+          <div className="mono mb-2 truncate text-[10.5px] text-slate-500" title={form.topic || "未填写 Topic"}>
+            {form.topic || "未填写 Topic"}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
+              <div className="text-[10px] text-[var(--text-faint)]">目标分区</div>
+              <div className="mono mt-0.5 truncate text-[12px] font-semibold text-slate-200">
+                P{activePartition}{form.partition === "auto" ? " · 自动" : ""}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
+              <div className="text-[10px] text-[var(--text-faint)]">Leader</div>
+              <div className="mono mt-0.5 truncate text-[12px] font-semibold text-slate-200" title={previewLeader ? `${previewLeader.host}:${previewLeader.port}` : "当前没有 Leader"}>
+                {previewLeader ? `Broker ${previewLeader.id}` : "暂无"}
+              </div>
+              {previewLeader && <div className="mono truncate text-[11px] text-slate-500">{previewLeader.host}:{previewLeader.port}</div>}
+            </div>
+            <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
+              <div className="text-[10px] text-[var(--text-faint)]">副本</div>
+              <div className="mono mt-0.5 text-[12px] font-semibold text-slate-200">{previewPartition?.replicas.length ?? "—"}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
+              <div className="text-[10px] text-[var(--text-faint)]">ISR / 副本</div>
+              <div className={`mono mt-0.5 text-[12px] font-semibold ${previewPartition && previewPartition.isr.length < previewPartition.replicas.length ? "text-amber-300" : "text-emerald-300"}`}>
+                {previewPartition ? `${previewPartition.isr.length} / ${previewPartition.replicas.length}` : "—"}
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 text-[10.5px] leading-relaxed text-slate-500">
+            {form.acks === "all" ? "acks=all：等待当前 ISR 副本确认。" : form.acks === "1" ? "acks=1：等待 Leader 确认。" : "acks=0：不等待 Broker 确认。"}
+          </div>
+        </div>
       </div>
 
       {/* 中：Trace */}
-      <div className="min-w-0 space-y-3">
-        <div className="card px-3 pt-2">
+      <div className="producer-column producer-observe-column min-w-0">
+        <div className="card producer-trace-card px-3 pt-2">
           <div className="flex gap-1 border-b border-[var(--border-soft)] text-[12.5px]">
             {([["trace", "发送追踪"], ["timeline", "时间线"], ["faults", "故障分析"]] as const).map(([k, t]) => (
               <button key={k} onClick={() => setMidTab(k)}
@@ -454,7 +598,7 @@ export function ProducerPage() {
             )}
           </div>
         </div>
-        <div className="card p-3">
+        <div className="card producer-topology-card p-3">
           <TopologyGraph
             topic={form.topic}
             partitions={(cluster?.partitions ?? []).map((p) => ({
@@ -471,7 +615,7 @@ export function ProducerPage() {
       </div>
 
       {/* 右：结果列 */}
-      <div className="col-right sticky-side space-y-3">
+      <div className="producer-column col-right">
       <div className="card h-fit p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="card-title">请求 / 响应详情</span>
@@ -487,14 +631,14 @@ export function ProducerPage() {
             </div>
             {[
               ["API", "Produce (0)"],
-              ["Topic", form.topic || "test-topic"],
+              ["Topic", form.topic || "未填写"],
               ["Partition", "发送后确定"],
               ["Broker", "由 Metadata Leader 决定"],
               ["Offset", "发送后回填"],
             ].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between gap-3 py-[3px] text-[12px] opacity-60">
-                <span className="shrink-0 text-[var(--text-faint)]">{k}</span>
-                <span className="mono min-w-0 truncate text-right text-slate-300">{v}</span>
+              <div key={k} className="flex items-center justify-between gap-3 py-[3px] text-[12px]">
+                <span className="shrink-0 text-[var(--text-dim)]">{k}</span>
+                <span className="mono min-w-0 truncate text-right text-slate-700">{v}</span>
               </div>
             ))}
           </div>
@@ -584,7 +728,7 @@ export function ProducerPage() {
               })()}
             </>
           ) : (
-            <div className="py-2 text-[11.5px] text-slate-600">发送后显示真实 Topic / Partition / Offset，失败显示真实 Error Code。</div>
+            <div className="py-2 text-[11.5px] text-slate-500">发送后显示真实 Topic / Partition / Offset，失败显示真实 Error Code。</div>
           )}
         </div>
         <div className="card p-3">
@@ -609,7 +753,8 @@ export function ProducerPage() {
                   } catch { return <div className="mono mt-1 break-all text-[10.5px] text-slate-400">{v}</div>; }
                 })();
                 return (
-                  <div key={r.id} className="rounded-md bg-black/20 px-1.5 py-1 text-[11px]">
+                  <div key={r.id} onClick={() => setDetailId(r.id)} title="点击查看完整记录"
+                    className="cursor-pointer rounded-md bg-black/20 px-1.5 py-1 text-[11px] hover:bg-slate-900/[0.04]">
                     <div className="flex w-full items-center gap-1.5 text-left">
                       <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${r.status === "SUCCESS" ? "bg-emerald-400" : r.status === "ERROR" ? "bg-red-400" : "bg-sky-400 pulsing"}`} />
                       <span className="mono truncate text-slate-300">{r.topic}</span>
@@ -619,22 +764,13 @@ export function ProducerPage() {
                     </div>
                     {preview}
                     {r.status === "SUCCESS" && r.value != null && (
-                      <div className="mt-1 flex gap-1.5">
+                      <div className="mt-1 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={() => {
-                            try { navigator.clipboard.writeText(`Topic=${r.topic} Partition=${r.partition} Offset=${r.offset}`); } catch { /* ignore */ }
-                          }}
-                          className="btn btn-ghost btn-sm !px-1.5 !py-[1px] !text-[10px]">View</button>
+                          onClick={() => setDetailId(r.id)}
+                          className="btn btn-ghost btn-sm !px-1.5 !py-[1px] !text-[10px]">详情</button>
                         <button
-                          onClick={async () => {
-                            setSendFail(null);
-                            setSending(true);
-                            try {
-                              if (r.key != null) setForm((f) => ({ ...f, key: r.key as string, value: r.value ?? f.value }));
-                              await doOneSend({ ...form, key: r.key ?? form.key, value: r.value ?? form.value, keyHex: "", valueHex: "" });
-                            } catch (e) { setSendFail(e instanceof Error ? e.message : String(e)); }
-                            finally { setSending(false); }
-                          }}
+                          onClick={() => void resendRecord(r)}
+                          disabled={readonly} title={readonly ? "只读巡检模式下禁止重发消息" : undefined}
                           className="btn btn-ghost btn-sm !px-1.5 !py-[1px] !text-[10px]">Resend</button>
                       </div>
                     )}
@@ -645,8 +781,70 @@ export function ProducerPage() {
           )}
         </div>
 
+        {(() => {
+          const r = recent.find((x) => x.id === detailId);
+          if (!r) return null;
+          const coord = `Topic=${r.topic} Partition=${r.partition} Offset=${r.offset}`;
+          const copyBtn = (tag: string, text: string, label = "复制") => (
+            <button onClick={() => void copyText(tag, text)}
+              className="btn btn-ghost btn-sm shrink-0 !px-2 !py-px !text-[10px]">
+              {copiedWhat === tag ? "已复制 ✓" : label}
+            </button>
+          );
+          return (
+            <div className="fixed inset-0 z-50">
+              <div className="absolute inset-0 bg-black/50" onClick={() => setDetailId(null)} />
+              <aside className="absolute inset-y-0 right-0 flex w-[420px] max-w-[94vw] flex-col border-l border-[var(--border)] bg-white shadow-2xl">
+                <div className="flex items-center gap-2 border-b border-[var(--border-soft)] px-4 py-3">
+                  <span className="text-[13px] font-bold text-slate-800">发送记录详情</span>
+                  <StatusBadge status={r.status === "SUCCESS" ? "success" : r.status === "ERROR" ? "error" : "pending"} />
+                  <button onClick={() => setDetailId(null)} title="关闭（Esc）"
+                    className="ml-auto rounded-md px-2 py-1 text-[14px] text-slate-500 hover:bg-slate-900/[0.04] hover:text-slate-700">✕</button>
+                </div>
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+                  <div className="rounded-lg border border-[var(--border-soft)]">
+                    <KV k="Topic" v={r.topic} mono />
+                    <div className="border-t border-[var(--border-soft)]" />
+                    <KV k="Partition" v={r.partition >= 0 ? String(r.partition) : "—"} mono />
+                    <div className="border-t border-[var(--border-soft)]" />
+                    <KV k="Offset" v={r.offset >= 0 ? String(r.offset) : "—"} mono />
+                    <div className="border-t border-[var(--border-soft)]" />
+                    <KV k="时间" v={r.time} mono />
+                    <div className="border-t border-[var(--border-soft)]" />
+                    <KV k="耗时" v={r.latency || "—"} mono />
+                    <div className="border-t border-[var(--border-soft)]" />
+                    <KV k="大小" v={r.size != null ? `${r.size} B` : "—"} mono />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="lbl !mb-0">Key</span>
+                      {r.key != null && r.key !== "" && copyBtn("key", r.key)}
+                    </div>
+                    <pre className="codebox max-h-32 whitespace-pre-wrap break-all">{r.key ?? "(空)"}</pre>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="lbl !mb-0">Value</span>
+                      {r.value != null && r.value !== "" && copyBtn("value", r.value)}
+                    </div>
+                    <pre className="codebox max-h-64 whitespace-pre-wrap break-all">{r.value ?? "(空)"}</pre>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] px-4 py-3">
+                  {copyBtn("coord", coord, "复制坐标")}
+                  {r.status === "SUCCESS" && r.value != null && (
+                    <button onClick={() => void resendRecord(r)} disabled={readonly || sending} title={readonly ? "只读巡检模式下禁止重发消息" : undefined}
+                      className="btn btn-ghost btn-sm">再次发送相同内容</button>
+                  )}
+                </div>
+              </aside>
+            </div>
+          );
+        })()}
+
       </div>
       </div>
+    </div>
     </div>
     </div>
   );

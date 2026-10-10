@@ -73,22 +73,22 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
             ))}
           </div>
 
-          <div className="scroll-box overflow-x-auto rounded-xl border border-[var(--border-soft)]">
-            <table className="w-full min-w-[720px] border-collapse text-left text-[11px]">
+          <div className="topology-matrix-wrap overflow-hidden rounded-xl border border-[var(--border-soft)]">
+            <table className="topology-matrix-table w-full table-fixed border-collapse text-left text-[11px]">
               <thead className="bg-[var(--panel-3)]">
                 <tr>
-                  <th className="sticky left-0 z-10 min-w-[130px] border-b border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2 font-medium text-slate-400">Partition</th>
-                  <th className="min-w-[100px] border-b border-[var(--border-soft)] px-3 py-2 font-medium text-slate-400">Leader</th>
+                  <th className="w-[90px] border-b border-[var(--border-soft)] bg-[var(--panel-3)] px-2 py-2 font-medium text-slate-400">Partition</th>
+                  <th className="w-[72px] border-b border-[var(--border-soft)] px-1.5 py-2 font-medium text-slate-400">Leader</th>
                   {brokerIds.map((id) => {
                     const broker = brokerFor(id);
                     const focused = focusedBroker === id;
                     return (
-                      <th key={id} className={`min-w-[155px] border-b border-[var(--border-soft)] px-2 py-1.5 ${focused ? "bg-sky-500/10" : ""}`}>
+                      <th key={id} className={`border-b border-[var(--border-soft)] px-1.5 py-1.5 ${focused ? "bg-sky-500/10" : ""}`}>
                         <button type="button" aria-pressed={focused} onClick={() => setFocusedBroker(focused ? null : id)}
                           className={`w-full rounded-md px-1.5 py-1 text-left transition-colors hover:bg-sky-500/10 ${focused ? "text-sky-200" : "text-slate-300"}`}>
                           <span className="block font-semibold">Broker {id}{id === actualBrokerId && actualRoute ? " · 本次发送" : ""}</span>
-                          <span className="mono mt-0.5 block truncate text-[10px] text-[var(--text-faint)]">{broker ? `${broker.host}:${broker.port}` : "地址未返回"}</span>
-                          <span className="mt-0.5 block text-[10px] font-normal text-slate-500">Leader {leaderCount(id)} · Replica {replicaCount(id)}</span>
+                          <span className="mono mt-0.5 block truncate text-[10px] text-[var(--text-faint)]" title={broker ? `${broker.host}:${broker.port}` : "地址未返回"}>{broker ? `${broker.host}:${broker.port}` : "地址未返回"}</span>
+                          <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-500">Leader {leaderCount(id)} · Replica {replicaCount(id)}</span>
                         </button>
                       </th>
                     );
@@ -105,31 +105,32 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
                   const lastSent = isActualPartition(p);
                   return (
                     <tr key={p.p} className={`border-b border-[var(--border-soft)] last:border-b-0 transition-colors ${selected ? "bg-sky-500/[0.07]" : "hover:bg-white/[0.02]"} ${!containsBroker ? "opacity-35" : ""}`}>
-                      <td className={`sticky left-0 z-[1] border-r border-[var(--border-soft)] px-3 py-2 ${selected ? "bg-[#10243a]" : "bg-[var(--panel)]"}`}>
+                      <td className={`border-r border-[var(--border-soft)] px-1.5 py-2 ${selected ? "bg-[#e5effb]" : "bg-[var(--panel)]"}`}>
                         <button type="button" aria-pressed={selected} disabled={!onSelectPartition}
                           onClick={() => onSelectPartition?.(p.p)}
                           className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-left transition-colors ${selected ? "font-semibold text-sky-200" : "text-slate-300 hover:bg-sky-500/10 hover:text-sky-100"} disabled:cursor-default`}>
                           <span className="mono">P{p.p}</span>
-                          {lastSent && <span className="badge warn !px-1.5 !py-0">已发送</span>}
-                          {selected && !lastSent && <span className="badge run !px-1.5 !py-0">发送目标</span>}
+                          {lastSent && <span className="badge warn !px-1.5 !py-0">已发</span>}
+                          {selected && !lastSent && <span className="badge run !px-1.5 !py-0">目标</span>}
                         </button>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-1.5 py-2">
                         {leader == null ? <span className="badge err">无 Leader</span> : (
-                          <span className={`badge ${lastSent && leader === actualBrokerId ? "run" : "mute"}`}>Broker {leader}</span>
+                          <span className={`badge ${lastSent && leader === actualBrokerId ? "run" : "mute"}`} title={`Broker ${leader}`}>B{leader}</span>
                         )}
                       </td>
                       {brokerIds.map((id) => {
                         const isReplica = replicaIds.includes(id);
-                        if (!isReplica) return <td key={id} className={`px-2 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}><span className="text-slate-700">—</span></td>;
+                        if (!isReplica) return <td key={id} className={`px-1.5 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}><span className="text-slate-700">—</span></td>;
                         const isLeader = leader === id;
                         const inSync = inSyncIds.includes(id);
                         const isActualLeader = lastSent && isLeader && actualBrokerId === id;
                         return (
-                          <td key={id} className={`px-2 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}>
-                            <div className={`flex min-h-8 items-center gap-1.5 rounded-md border px-2 py-1 ${isActualLeader ? "border-sky-400/60 bg-sky-500/15" : isLeader ? "border-violet-400/30 bg-violet-500/[0.08]" : inSync ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-rose-500/30 bg-rose-500/[0.08]"}`}>
-                              <span className={`font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "Leader" : "Replica"}</span>
-                              <span className={`ml-auto text-[9px] ${inSync ? "text-emerald-300" : "text-rose-300"}`}>{inSync ? "ISR" : "不同步"}</span>
+                        <td key={id} className={`min-w-0 px-1.5 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}>
+                            <div title={`${isLeader ? "Leader" : "Replica"} · ${inSync ? "ISR" : "不同步"}`} className={`flex min-h-8 min-w-0 items-center gap-1 rounded-md border px-1.5 py-1 ${isActualLeader ? "border-sky-400/60 bg-sky-500/15" : isLeader ? "border-violet-400/30 bg-violet-500/[0.08]" : inSync ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-rose-500/30 bg-rose-500/[0.08]"}`}>
+                              <span className={`topology-role-long truncate text-[10px] font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "Leader" : "Replica"}</span>
+                              <span className={`topology-role-short text-[10px] font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "L" : "R"}</span>
+                              <span className={`ml-auto shrink-0 text-[11px] ${inSync ? "text-emerald-300" : "text-rose-300"}`}>{inSync ? "ISR" : "!"}</span>
                             </div>
                           </td>
                         );

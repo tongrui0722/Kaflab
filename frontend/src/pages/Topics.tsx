@@ -201,8 +201,9 @@ export function TopicsPage() {
             <button onClick={() => void load(conn.id)} disabled={loading} className="btn btn-ghost btn-sm">
               {loading ? "刷新中…" : "↻ 刷新"}
             </button>
-            {!readonly && <button onClick={() => { setShowCreate((v) => !v); setCErr(null); setCSuccess(null); }}
-              className="btn btn-primary btn-sm">{showCreate ? "收起表单" : "+ 新建 Topic"}</button>}
+            <button onClick={() => { if (readonly) return; setShowCreate((v) => !v); setCErr(null); setCSuccess(null); }}
+              disabled={readonly} title={readonly ? "只读巡检模式下禁止创建 Topic" : undefined}
+              className="btn btn-primary btn-sm">{showCreate ? "收起表单" : "+ 新建 Topic"}</button>
           </>
         } />
 
@@ -220,18 +221,19 @@ export function TopicsPage() {
         ].map(([label, value, sub, tone]) => (
           <div key={String(label)} className={`metric-card metric-${tone}`}>
             <div className="metric-label">{label}</div>
-            <div className="mono mt-1.5 text-[20px] font-bold text-slate-100">{loading ? "…" : value}</div>
+            <div className="mono mt-1.5 text-[20px] font-bold text-slate-800">{loading ? "…" : value}</div>
             <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">{sub}</div>
           </div>
         ))}
       </div>
 
-      {!readonly && showCreate && (
+      {showCreate && (
         <div className="card mb-3 p-4">
           <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-100">创建 Topic</span>
+            <span className="text-[13px] font-bold text-slate-800">创建 Topic</span>
             <span className="text-[11px] text-[var(--text-faint)]">将在 {conn.name} 上创建</span>
           </div>
+          <fieldset disabled={readonly} className="m-0 min-w-0 border-0 p-0">
           <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_minmax(120px,.6fr)_minmax(160px,.8fr)_auto]">
             <div><label className="lbl">Topic 名称</label>
               <input className="field mono" value={cName} placeholder="如 order-events"
@@ -242,11 +244,11 @@ export function TopicsPage() {
             <div><label className="lbl">副本数（当前 {brokerCount} 台 Broker）</label>
               <input type="number" min={1} max={Math.max(brokerCount, 1)} className="field mono" value={cRf}
                 onChange={(e) => setCRf(Math.min(Math.max(brokerCount, 1), Math.max(1, Math.floor(Number(e.target.value) || 1))))} /></div>
-            <button onClick={() => void createTopic()} disabled={cBusy || loading} className="btn btn-primary">
+            <button onClick={() => void createTopic()} disabled={readonly || cBusy || loading} title={readonly ? "只读巡检模式下禁止创建 Topic" : undefined} className="btn btn-primary">
               {cBusy ? "创建中…" : "创建 Topic"}
             </button>
             <div className="sm:col-span-2 xl:col-span-full">
-              <div className="mb-2 text-[11px] font-semibold text-slate-300">常用配置</div>
+              <div className="mb-2 text-[11px] font-semibold text-slate-600">常用配置</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div><label className="lbl">消息保留时间</label>
                   <select className="field" value={cRetentionMs} onChange={(e) => setCRetentionMs(e.target.value)}>
@@ -273,7 +275,7 @@ export function TopicsPage() {
                 </div>
               </div>
               <details className="mt-3 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3">
-                <summary className="cursor-pointer text-[11px] font-semibold text-slate-300">高级配置（JSON，可选）</summary>
+                <summary className="cursor-pointer text-[11px] font-semibold text-slate-600">高级配置（JSON，可选）</summary>
                 <div className="mt-2">
                   <textarea className="field mono min-h-[72px] py-2" value={cConfigs}
                     placeholder={'{"max.message.bytes": "1048576"}'}
@@ -283,6 +285,7 @@ export function TopicsPage() {
               </details>
             </div>
           </div>
+          </fieldset>
           {cErr && <div className="alert err mt-3">{cErr}</div>}
         </div>
       )}
@@ -290,7 +293,7 @@ export function TopicsPage() {
       <section className="card overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border-soft)] p-3.5">
           <div className="min-w-[150px]">
-            <div className="text-[13px] font-bold text-slate-100">Topic 列表</div>
+            <div className="text-[13px] font-bold text-slate-800">Topic 列表</div>
             <div className="mt-0.5 text-[10.5px] text-[var(--text-faint)]">{filtered.length} / {rows.length} 个 Topic</div>
           </div>
           <label className="sr-only" htmlFor="topic-search">搜索 Topic</label>
@@ -312,7 +315,7 @@ export function TopicsPage() {
           <div className="py-10 text-center text-[12px] text-slate-500">暂时无法加载 Topic 列表。</div>
         ) : filtered.length === 0 ? (
           <div className="py-14 text-center">
-            <div className="text-[13px] font-semibold text-slate-200">{rows.length ? "没有匹配的 Topic" : "当前集群还没有 Topic"}</div>
+            <div className="text-[13px] font-semibold text-slate-700">{rows.length ? "没有匹配的 Topic" : "当前集群还没有 Topic"}</div>
             <div className="mt-1 text-[11px] text-[var(--text-faint)]">{rows.length ? "试试调整搜索词或健康状态筛选。" : "可以通过右上角创建第一个 Topic。"}</div>
           </div>
         ) : (
@@ -323,8 +326,8 @@ export function TopicsPage() {
                   <tr>
                     {([["topic", "Topic"], ["partitions", "分区"], ["replication", "RF"], ["health", "状态"]] as [SortKey, string][]).map(([key, label]) => (
                       <th key={key} className={key === "topic" ? "" : "!text-center"}>
-                        <button onClick={() => sort(key)} className="inline-flex items-center gap-1 hover:text-slate-200">
-                          {label}<span className="text-sky-300">{sortKey === key ? sortAsc ? "↑" : "↓" : "↕"}</span>
+                        <button onClick={() => sort(key)} className="inline-flex items-center gap-1 hover:text-slate-700">
+                          {label}<span className="text-sky-700">{sortKey === key ? sortAsc ? "↑" : "↓" : "↕"}</span>
                         </button>
                       </th>
                     ))}
@@ -335,10 +338,10 @@ export function TopicsPage() {
                 <tbody>
                   {pageRows.map((row) => (
                     <tr key={row.topic} onClick={() => { window.location.hash = `#/topics/${encodeURIComponent(row.topic)}`; }}
-                      className="cursor-pointer transition-colors hover:bg-white/[0.035]">
-                      <td className="max-w-[420px] truncate font-semibold text-slate-100" title={row.topic}>{row.topic}</td>
-                      <td className="!text-center text-slate-300">{row.partitions}</td>
-                      <td className="!text-center text-slate-300">{row.replication}</td>
+                      className="cursor-pointer transition-colors hover:bg-slate-900/[0.04]">
+                      <td className="max-w-[420px] truncate font-semibold text-slate-800" title={row.topic}>{row.topic}</td>
+                      <td className="!text-center text-slate-600">{row.partitions}</td>
+                      <td className="!text-center text-slate-600">{row.replication}</td>
                       <td className="!text-center"><span className={`badge ${healthClass(row)}`}>{healthLabel(row)}</span></td>
                       <td>
                         <div className="flex flex-wrap gap-1">
@@ -346,7 +349,7 @@ export function TopicsPage() {
                             : <span className="text-[var(--text-faint)]">无 Leader</span>}
                         </div>
                       </td>
-                      <td className="!text-right"><span className="text-[11px] text-sky-300">查看详情 →</span></td>
+                      <td className="!text-right"><span className="text-[11px] text-sky-700">查看详情 →</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -363,7 +366,7 @@ export function TopicsPage() {
                   {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
                 </select>
                 <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page <= 1} className="btn btn-ghost btn-sm">上一页</button>
-                <span className="mono min-w-[58px] text-center text-[11px] text-slate-300">{page} / {totalPages}</span>
+                <span className="mono min-w-[58px] text-center text-[11px] text-slate-600">{page} / {totalPages}</span>
                 <button onClick={() => setPage((n) => Math.min(totalPages, n + 1))} disabled={page >= totalPages} className="btn btn-ghost btn-sm">下一页</button>
               </div>
             </div>

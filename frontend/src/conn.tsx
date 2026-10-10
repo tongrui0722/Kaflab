@@ -58,7 +58,7 @@ const Ctx = createContext<ConnCtx>({
 export function ConnProvider({ children }: { children: ReactNode }) {
   const [clusters, setClusters] = useState<ConnConfig[]>([]);
   const [activeId, setActiveId] = useState<string | null>(() => {
-    try { return localStorage.getItem(ACTIVE_KEY); } catch { return null; }
+    try { return sessionStorage.getItem(ACTIVE_KEY); } catch { return null; }
   });
   const [health, setHealth] = useState<Record<string, ClusterHealth>>({});
   const [loading, setLoading] = useState(true);
@@ -70,12 +70,8 @@ export function ConnProvider({ children }: { children: ReactNode }) {
       setClusters(list);
       setActiveId((cur) => {
         if (cur && list.some((c) => c.id === cur)) return cur;
-        const first = list[0]?.id ?? null;
-        try {
-          if (first) localStorage.setItem(ACTIVE_KEY, first);
-          else localStorage.removeItem(ACTIVE_KEY);
-        } catch { /* ignore */ }
-        return first;
+        try { sessionStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ }
+        return null;
       });
     } finally {
       setLoading(false);
@@ -86,7 +82,7 @@ export function ConnProvider({ children }: { children: ReactNode }) {
 
   const select = useCallback((id: string) => {
     setActiveId(id);
-    try { localStorage.setItem(ACTIVE_KEY, id); } catch { /* ignore */ }
+    try { sessionStorage.setItem(ACTIVE_KEY, id); } catch { /* ignore */ }
   }, []);
 
   const save = useCallback(async (c: Partial<ConnConfig> & { bootstrap: string }) => {
@@ -137,6 +133,7 @@ export function ConnProvider({ children }: { children: ReactNode }) {
   const probeRef = useRef(probe);
   useEffect(() => { probeRef.current = probe; });
   useEffect(() => {
+    if (!activeId) return;
     const id = conn.id;
     if (!id) return;
     probeRef.current(id);
@@ -144,9 +141,9 @@ export function ConnProvider({ children }: { children: ReactNode }) {
     const onFocus = () => { probeRef.current(id); };
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [conn.id]);
+  }, [activeId, conn.id]);
   return (
-    <Ctx.Provider value={{ clusters, activeId: conn.id, conn, health, loading, select, refresh, save, remove, probe }}>
+    <Ctx.Provider value={{ clusters, activeId, conn, health, loading, select, refresh, save, remove, probe }}>
       {children}
     </Ctx.Provider>
   );

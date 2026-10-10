@@ -149,7 +149,7 @@ export function ConsumerPage() {
 
   const tabBtn = (k: Tab, label: string, badge?: string) => (
     <button key={k} onClick={() => setTab(k)}
-      className={`relative flex items-center gap-1.5 px-2.5 pb-2.5 pt-1 text-[12.5px] transition-colors ${tab === k ? "font-semibold text-sky-300" : "text-[var(--text-faint)] hover:text-slate-300"}`}>
+      className={`relative flex items-center gap-1.5 px-2.5 pb-2.5 pt-1 text-[12.5px] transition-colors ${tab === k ? "font-semibold text-sky-700" : "text-[var(--text-faint)] hover:text-slate-600"}`}>
       {label}
       {badge && <span className="badge mute !px-1.5 !text-[10px]">{badge}</span>}
       {tab === k && <span className="absolute inset-x-1 -bottom-px h-[2px] rounded-full bg-sky-400" />}
@@ -169,16 +169,16 @@ export function ConsumerPage() {
         {/* 左：配置 */}
         <div className="card col-side sticky-side h-fit p-3.5">
           <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-100">Fetch 配置</span>
-            <span className={`ml-auto inline-flex items-center gap-1.5 text-[11px] ${h?.connected ? "text-emerald-300" : h?.connected === false ? "text-rose-300" : "text-slate-500"}`}>
+            <span className="text-[13px] font-bold text-slate-800">Fetch 配置</span>
+            <span className={`ml-auto inline-flex items-center gap-1.5 text-[11px] ${h?.connected ? "text-emerald-700" : h?.connected === false ? "text-rose-600" : "text-slate-500"}`}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${h?.connected === false ? "pulsing" : ""}`} />
               {probing ? "检测中…" : statusText}
             </span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[rgba(56,189,248,0.12)] text-[14px] text-sky-300">⬇</span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[rgba(56,189,248,0.12)] text-[14px] text-sky-700">⬇</span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] font-semibold text-slate-200">{conn.name || "自定义"}</div>
+              <div className="truncate text-[12px] font-semibold text-slate-700">{conn.name || "自定义"}</div>
               <div className="mono truncate text-[10.5px] text-[var(--text-faint)]">{conn.bootstrap} · {conn.securityProtocol}</div>
             </div>
             <button onClick={reProbe} disabled={probing} title="立即检测连接"
@@ -197,10 +197,11 @@ export function ConsumerPage() {
             <div><label className={labelCls}>Partition{partitions.length > 0 && <span className="ml-1 font-normal text-slate-600">共 {partitions.length} 个</span>}</label>
               {partitions.length > 0 ? (
                 <select className={inputCls} value={form.partition}
+                  title={`P${form.partition}`}
                   onChange={(e) => setForm({ ...form, partition: Number(e.target.value) })}>
                   {partitions.map((p) => (
                     <option key={p.partition} value={p.partition}>
-                      P{p.partition}（leader {p.leader}）
+                      P{p.partition} · L{p.leader}
                     </option>
                   ))}
                 </select>
@@ -214,18 +215,16 @@ export function ConsumerPage() {
             <div className="col-span-2"><label className={labelCls}>Offset</label>
               <input className={inputCls} value={form.offset} placeholder="空 = 最新 N 条"
                 onChange={(e) => setForm({ ...form, offset: e.target.value })} /></div>
-            {!readonly && (
             <div className="col-span-2"><label className={labelCls}>Group ID</label>
-              <input className={inputCls} value={form.groupId} placeholder="空 = 不入组"
+              <input className={inputCls} disabled={readonly} title={readonly ? "只读模式下不可提交消费位点" : undefined} value={form.groupId} placeholder="空 = 不入组"
                 onChange={(e) => setForm({ ...form, groupId: e.target.value })} />
               <div className="mt-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
                 填了则先读已提交位点，Fetch 成功后自动 OffsetCommit。
               </div>
             </div>
-            )}
           </div>
 
-          <button onClick={() => { if (form.groupId.trim()) requireLab(() => { void fetchMsgs(); }); else void fetchMsgs(); }} disabled={running || h?.connected === false} className="btn btn-fetch mt-3" title={h?.connected === false ? "集群未连接，先恢复连接" : form.groupId.trim() ? "将提交位点，需实验模式确认" : undefined}>
+          <button onClick={() => { if (form.groupId.trim()) requireLab(() => { void fetchMsgs(); }); else void fetchMsgs(); }} disabled={running || h?.connected === false || (readonly && Boolean(form.groupId.trim()))} className="btn btn-fetch mt-3" title={readonly && form.groupId.trim() ? "只读巡检模式禁止提交消费位点，请清空 Group ID 后仅查看消息" : h?.connected === false ? "集群未连接，先恢复连接" : form.groupId.trim() ? "将提交位点，需实验模式确认" : undefined}>
             {running ? "Fetch 中…" : "⬇ Fetch 消息"}
           </button>
           {h?.connected === false && !error && (
@@ -249,7 +248,7 @@ export function ConsumerPage() {
             {tab === "messages" && (
               !result ? (
                 <div className="py-12 text-center">
-                  <div className="text-[13px] font-semibold text-slate-300">还没有数据</div>
+                  <div className="text-[13px] font-semibold text-slate-600">还没有数据</div>
                   <div className="mono mt-2 text-[11px] leading-relaxed text-slate-500">
                     TCP → ApiVersions → Metadata → Partition → Leader → ListOffsets/OffsetFetch → Fetch
                   </div>
@@ -275,12 +274,12 @@ export function ConsumerPage() {
                             {(m.value ?? "").length} B
                           </span>
                         </div>
-                        <div className={`mono mt-1 break-all text-[11.5px] text-slate-200 ${open ? "" : "line-clamp-3"}`}>
+                        <div className={`mono mt-1 break-all text-[11.5px] text-slate-700 ${open ? "" : "line-clamp-3"}`}>
                           {m.value}
                         </div>
                         {long && (
                           <button onClick={() => setExpanded(open ? null : m.offset)}
-                            className="mt-1 text-[10.5px] text-sky-300/80 hover:text-sky-200">
+                            className="mt-1 text-[10.5px] text-sky-700/80 hover:text-sky-700">
                             {open ? "收起" : "展开全部"}
                           </button>
                         )}
@@ -307,7 +306,7 @@ export function ConsumerPage() {
         <div className="col-right sticky-side space-y-3">
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">Fetch 结果</span>
+              <span className="text-[13px] font-bold text-slate-800">Fetch 结果</span>
               {result && <span className="badge ok ml-auto">{result.count} 条</span>}
             </div>
             {!result && <div className="py-3 text-center text-[11.5px] text-slate-500">尚无结果。</div>}
@@ -337,7 +336,7 @@ export function ConsumerPage() {
           </div>
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">请求 / 响应详情</span>
+              <span className="text-[13px] font-bold text-slate-800">请求 / 响应详情</span>
               {events.length > 0 && <span className="badge mute mono">step {selected}</span>}
             </div>
             {events.length === 0 ? (

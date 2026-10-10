@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import hashlib
 import struct
 import time
 import uuid
@@ -351,6 +352,21 @@ class ConsumerEngine:
                         continue
 
             out = []
+            expected_user_partition_keys = sorted(
+                f"{t}:{p}" for t, ps in topics if not t.startswith("_")
+                for p, _ in ps)
+            known_user_partition_keys = {
+                f"{t}:{p}" for (t, p), end in ends.items()
+                if not t.startswith("_") and end is not None}
+            produce_rate_sample = None
+            if expected_user_partition_keys and set(expected_user_partition_keys) == known_user_partition_keys:
+                shape = hashlib.sha1("\n".join(expected_user_partition_keys).encode("utf-8")).hexdigest()[:10]
+                produce_rate_sample = {
+                    "series": f"集群|{shape}",
+                    "value": sum(int(end) for (t, _), end in ends.items()
+                                 if not t.startswith("_") and end is not None),
+                }
+            consume_rate_samples = []
             for gid in sorted(seen):
                 try:
                     fc, _, _ = await bs.call(
@@ -412,6 +428,18 @@ class ConsumerEngine:
                                 uncomm += 1
                             else:
                                 total += max(e_off - c_off, 0)
+                    committed_user_offsets = sorted(
+                        ((t, p, off) for (t, p), off in pmap.items()
+                         if not t.startswith("_") and off is not None and off >= 0),
+                        key=lambda item: (item[0], item[1]))
+                    if committed_user_offsets and uncomm == 0:
+                        shape = hashlib.sha1("\n".join(
+                            f"{t}:{p}" for t, p, _ in committed_user_offsets
+                        ).encode("utf-8")).hexdigest()[:10]
+                        consume_rate_samples.append({
+                            "series": f"{gid}|{shape}",
+                            "value": sum(int(offset) for _, _, offset in committed_user_offsets),
+                        })
                     out.append({
                         "groupId": gid, "state": g.get("state"),
                         "protocolType": g.get("protocolType"),
@@ -428,7 +456,9 @@ class ConsumerEngine:
                     })
                 except Exception as e:  # noqa: BLE001
                     out.append({"groupId": gid, "error": str(e)[:200]})
-            return {"traceId": trace_id, "count": len(out), "groups": out}
+            return {"traceId": trace_id, "count": len(out), "groups": out,
+                    "rateSamples": {"produce": produce_rate_sample,
+                                    "consume": consume_rate_samples}}
         finally:
             for c in clients:
                 c.close()

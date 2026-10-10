@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiGet } from "../api/producer";
 import { useLab } from "../lab";
-import { authHeaders } from "../auth";
+import { authHeaders, useAuth } from "../auth";
 import { PageHeader } from "../components/bits";
 import type { KafkaTraceEvent } from "../types";
 
@@ -83,6 +83,8 @@ export function ProtocolPage() {
 export function FaultsPage() {
   const [states, setStates] = useState<Record<string, boolean>>({});
   const { requireLab } = useLab();
+  const { mode } = useAuth();
+  const readonly = mode === "readonly";
   const [out, setOut] = useState("");
   const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
   const FAULTS: [string, string][] = [
@@ -111,15 +113,15 @@ export function FaultsPage() {
     <div className="card mx-auto max-w-xl p-4">
       <div className="mb-2 flex items-center justify-between">
         <span className="card-title">Fault Injection（默认全关）</span>
-        <button onClick={() => requireLab(() => { void clear(); })} className="btn btn-ghost btn-sm">全部关闭</button>
+        <button onClick={() => requireLab(() => { void clear(); })} disabled={readonly} title={readonly ? "只读巡检模式下禁止修改故障注入状态" : undefined} className="btn btn-ghost btn-sm">全部关闭</button>
       </div>
       <div className="space-y-2">
         {FAULTS.map(([name, desc]) => {
           const on = !!states[name];
           return (
             <div key={name} className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
-              <button onClick={() => requireLab(() => { void toggle(name, !on); })}
-                className={`mono w-12 shrink-0 rounded-md py-1 text-[11px] font-bold transition-all ${on ? "bg-amber-400 text-[#2b1a02] shadow-[0_4px_14px_-6px_rgba(251,191,36,0.7)]" : "bg-[#1a2540] text-slate-400 hover:text-slate-200"}`}>
+              <button onClick={() => requireLab(() => { void toggle(name, !on); })} disabled={readonly} title={readonly ? "只读巡检模式下禁止修改故障注入状态" : undefined}
+                className={`mono w-12 shrink-0 rounded-md py-1 text-[11px] font-bold transition-all ${on ? "bg-amber-400 text-[#2b1a02] shadow-[0_4px_14px_-6px_rgba(251,191,36,0.7)]" : "bg-[#e5ebf3] text-slate-400 hover:text-slate-200"}`}>
                 {on ? "ON" : "OFF"}
               </button>
               <div>
@@ -151,7 +153,7 @@ export function SettingsPage() {
       <div>连接配置统一在左侧「集群」抽屉与集群管理页维护，各功能页共用当前集群。</div>
       <div className="mono text-[11.5px] text-slate-500">
         集群示例：PLAINTEXT://192.168.127.129:19092<br />
-        SASL_PLAINTEXT://192.168.127.129:19094（PLAIN admin/admin123）<br />
+        SASL_PLAINTEXT://192.168.127.129:19094（PLAIN admin / 口令见部署文档）<br />
         SCRAM_PLAINTEXT://192.168.127.129:19095（SCRAM scramuser/口令）
       </div>
       <div>后端：`uvicorn app.main:app --port 8000`；前端 `.env`：VITE_API_BASE / VITE_WS_BASE。</div>

@@ -19,7 +19,7 @@ export function GroupDetailTab({ events, topic, partitions, activePartition }: {
     <div className="space-y-2">
       <div className="text-[11.5px] leading-relaxed text-slate-500">
         Producer 不加入 consumer group，无 Coordinator / Generation / Member。
-        此处展示本次发送命中的 <span className="mono text-slate-300">Topic → Partition → Leader</span> 真实分配。
+        此处展示本次发送命中的 <span className="mono text-slate-600">Topic → Partition → Leader</span> 真实分配。
       </div>
       <div className="card-title">Topic: {topic}</div>
       {rows.length === 0 ? (
@@ -90,14 +90,14 @@ export function CoordTab({ events }: { events: KafkaTraceEvent[] }) {
         {rows.map(([k, v]) => (
           <div key={k} className="flex items-center justify-between py-1.5 text-[12px]">
             <span className="text-slate-500">{k}</span>
-            <span className="mono text-slate-200">{v}</span>
+            <span className="mono text-slate-700">{v}</span>
           </div>
         ))}
       </div>
       {coord ? (
-        <div className="rounded-lg bg-black/25 p-2">
+        <div className="rounded-lg bg-slate-500/[0.08] p-2">
           <div className="card-title mb-1">Coordinator（真实 FindCoordinator）</div>
-          <div className="mono text-[11px] text-slate-300">
+          <div className="mono text-[11px] text-slate-600">
             {JSON.stringify(coord.response ?? {})}
           </div>
         </div>

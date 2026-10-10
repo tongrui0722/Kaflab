@@ -45,7 +45,7 @@ export interface ProduceForm extends SecurityForm {
 
 export const DEFAULT_PRODUCE: ProduceForm = {
   ...DEFAULT_SECURITY,
-  bootstrap: "192.168.127.129:19092", topic: "test-topic", partition: "auto",
+  bootstrap: "192.168.127.129:19092", topic: "", partition: "auto",
   key: "", value: "", acks: "all", retries: 3,
   requestTimeoutMs: 10000, deliveryTimeoutMs: 30000,
 };
@@ -107,16 +107,22 @@ export function useProducerSession() {
     setRunning(true);
     setEvents([]);
     setSendError(null);
+    setWsDown(false);
     // POST 失败 = 后端不可达，直接报错
-    const res = await postJson<{ sessionId: string }>(`${API}/api/producer/send`, {
-      ...form, clientId: "kafka-sim-01",
-    });
-    setSession({
-      id: res.sessionId, clientId: "kafka-sim-01", operation: "Producer",
-      topic: form.topic, status: "running", startTime: Date.now(),
-      bootstrap: form.bootstrap, mode: "live",
-    });
-    connectWs(res.sessionId);
+    try {
+      const res = await postJson<{ sessionId: string }>(`${API}/api/producer/send`, {
+        ...form, clientId: "kafka-sim-01",
+      });
+      setSession({
+        id: res.sessionId, clientId: "kafka-sim-01", operation: "Producer",
+        topic: form.topic, status: "running", startTime: Date.now(),
+        bootstrap: form.bootstrap, mode: "live",
+      });
+      connectWs(res.sessionId);
+    } catch (e) {
+      setRunning(false);
+      throw e;
+    }
   }, [connectWs]);
 
   return { session, events, running, sendError, wsDown, send };

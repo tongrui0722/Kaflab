@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useConn, type ConnConfig } from "../conn";
 import { PageHeader } from "../components/bits";
+import { authHeaders, useAuth } from "../auth";
+
+const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
 
 const inputCls = "field mono";
 const labelCls = "lbl";
@@ -8,14 +12,16 @@ const labelCls = "lbl";
 type Draft = {
   id?: string; name: string; bootstrap: string; securityProtocol: string;
   saslMechanism: string; saslUsername: string; saslPassword: string;
+  monitoringMode: string; kafkaExporterUrl: string; jmxUrls: string;
 };
 const EMPTY: Draft = {
   name: "", bootstrap: "", securityProtocol: "PLAINTEXT",
   saslMechanism: "PLAIN", saslUsername: "", saslPassword: "",
+  monitoringMode: "builtin", kafkaExporterUrl: "", jmxUrls: "",
 };
 
 function ClusterEditor({
-  draft, onChange, onSubmit, onCancel, busy, err,
+  draft, onChange, onSubmit, onCancel, busy, err, readonly,
 }: {
   draft: Draft;
   onChange: (draft: Draft) => void;
@@ -23,6 +29,7 @@ function ClusterEditor({
   onCancel: () => void;
   busy: boolean;
   err: string | null;
+  readonly: boolean;
 }) {
   return (
     <div className="card fade-up p-4">
@@ -30,7 +37,7 @@ function ClusterEditor({
         <span className="text-[13px] font-bold text-slate-100">{draft.id ? "编辑集群" : "新增集群"}</span>
         {draft.id && <span className="mono text-[11px] text-[var(--text-faint)]">{draft.id}</span>}
       </div>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+      <fieldset disabled={readonly} className="m-0 grid min-w-0 grid-cols-1 gap-2.5 border-0 p-0 sm:grid-cols-2 xl:grid-cols-3">
         <div><label className={labelCls}>名称</label>
           <input className={inputCls} placeholder="如：生产集群" value={draft.name}
             onChange={(e) => onChange({ ...draft, name: e.target.value })} /></div>
@@ -61,10 +68,45 @@ function ClusterEditor({
                 onChange={(e) => onChange({ ...draft, saslPassword: e.target.value })} /></div>
           </>
         )}
+      </fieldset>
+      <div className="mt-4 rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-3.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12px] font-bold text-slate-100">监控采集器</span>
+          <span className="badge mute">按集群配置</span>
+          <span className="ml-auto text-[10.5px] text-[var(--text-faint)]">监控页只展示采集结果</span>
+        </div>
+        <fieldset disabled={readonly} className="mt-2 grid min-w-0 grid-cols-1 gap-2.5 border-0 p-0 sm:grid-cols-2">
+          <div>
+            <label className={labelCls}>采集方式</label>
+            <select className={inputCls} value={draft.monitoringMode}
+              onChange={(e) => onChange({ ...draft, monitoringMode: e.target.value })}>
+              <option value="builtin">内置 Kafka 只读采集</option>
+              <option value="kafka_exporter">Kafka Exporter</option>
+              <option value="jmx">JMX Exporter</option>
+              <option value="all">内置采集 + Exporter</option>
+            </select>
+          </div>
+          {(draft.monitoringMode === "kafka_exporter" || draft.monitoringMode === "all") && <div>
+            <label className={labelCls}>Kafka Exporter 指标地址</label>
+            <input className={inputCls} value={draft.kafkaExporterUrl}
+              onChange={(e) => onChange({ ...draft, kafkaExporterUrl: e.target.value })}
+              placeholder="http://192.168.1.20:9308/metrics" />
+          </div>}
+          {(draft.monitoringMode === "jmx" || draft.monitoringMode === "all") && <div className="sm:col-span-2">
+            <label className={labelCls}>JMX Exporter 指标地址（每行一个 Broker）</label>
+            <textarea className={`${inputCls} min-h-[68px]`} rows={2} value={draft.jmxUrls}
+              onChange={(e) => onChange({ ...draft, jmxUrls: e.target.value })}
+              placeholder="http://192.168.1.21:9404/metrics" />
+            <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">JMX 地址通常需要按 Broker 配置；只填一个地址时仅覆盖对应节点。</div>
+          </div>}
+        </fieldset>
+        <div className="mt-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+          内置采集复用该集群 Kafka 连接，只读获取元数据与消费组信息。Exporter 地址仅供 KafkaLab 拉取指标，不会由平台安装或管理 Exporter。
+        </div>
       </div>
       {err && <div className="alert err mt-2.5">{err}</div>}
       <div className="mt-3 flex gap-2">
-        <button onClick={onSubmit} disabled={busy} className="btn btn-send !w-auto !px-6">
+        <button onClick={onSubmit} disabled={busy || readonly} title={readonly ? "只读巡检模式下禁止保存集群配置" : undefined} className="btn btn-send !w-auto !px-6">
           {busy ? "保存…" : "保存并进入"}
         </button>
         <button onClick={onCancel} className="btn btn-ghost !px-6">取消</button>
@@ -75,32 +117,63 @@ function ClusterEditor({
 
 export function ClustersPage() {
   const { clusters, activeId, select, save, remove, probe, health, loading, refresh } = useConn();
+  const { mode } = useAuth();
+  const readonly = mode === "readonly";
+  const navigate = useNavigate();
   const [editing, setEditing] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [probing, setProbing] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [loadingMonitorConfig, setLoadingMonitorConfig] = useState(false);
 
   const online = clusters.filter((c) => health[c.id]?.connected).length;
   const offline = clusters.filter((c) => health[c.id]?.connected === false).length;
   const visibleClusters = clusters.filter((c) =>
     `${c.name} ${c.bootstrap} ${c.securityProtocol} ${c.saslMechanism}`.toLowerCase().includes(query.trim().toLowerCase()));
 
+  useEffect(() => {
+    clusters.forEach((cluster) => { if (!health[cluster.id]) void probe(cluster.id); });
+  }, [clusters, health, probe]);
+
   const submit = async () => {
     if (!editing || !editing.bootstrap.trim()) { setErr("bootstrap 不可为空"); return; }
     setBusy(true);
     setErr(null);
+    let savedId = editing.id;
     try {
-      const saved = await save(editing as ConnConfig);
+      const { monitoringMode: _mode, kafkaExporterUrl: _kafkaUrl, jmxUrls: _jmxUrls, ...clusterDraft } = editing;
+      const saved = await save(clusterDraft as ConnConfig);
+      savedId = saved.id;
+      const monitor = await fetch(`${API}/api/clusters/${saved.id}/monitoring`, { method: "PUT",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: editing.monitoringMode,
+          kafka_exporter_url: editing.kafkaExporterUrl,
+          jmx_urls: editing.jmxUrls.split("\n").map((s) => s.trim()).filter(Boolean) }) });
+      const monitorBody = await monitor.json() as { detail?: string };
+      if (!monitor.ok) throw new Error(monitorBody.detail || "集群已保存，但监控采集配置保存失败");
       setEditing(null);
       select(saved.id);
       await probe(saved.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+      if (savedId && editing && !editing.id) setEditing({ ...editing, id: savedId });
     } finally {
       setBusy(false);
     }
+  };
+
+  const openEdit = async (c: ConnConfig) => {
+    setQuery(""); setErr(null); setActionError(null); setLoadingMonitorConfig(true);
+    try {
+      const r = await fetch(`${API}/api/clusters/${c.id}/monitoring`, { headers: authHeaders() });
+      const d = await r.json() as { config?: { mode?: string; kafka_exporter_url?: string; jmx_urls?: string[] } };
+      if (!r.ok) throw new Error(`读取监控采集配置失败（HTTP ${r.status}）`);
+      setEditing({ ...c, monitoringMode: d.config?.mode ?? "builtin",
+        kafkaExporterUrl: d.config?.kafka_exporter_url ?? "", jmxUrls: (d.config?.jmx_urls ?? []).join("\n") });
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setEditing({ ...c, monitoringMode: "builtin", kafkaExporterUrl: "", jmxUrls: "" }); }
+    finally { setLoadingMonitorConfig(false); }
   };
 
   const doProbe = async (id: string) => {
@@ -108,11 +181,16 @@ export function ClustersPage() {
     try { await probe(id); } finally { setProbing(null); }
   };
 
+  const enterCluster = (id: string) => {
+    select(id);
+    navigate("/dashboard", { replace: true });
+  };
+
   return (
-    <div>
+    <div className="clusters-page">
       <PageHeader
-        title="集群管理"
-        desc="纳管多个集群，切换后各页面都在该集群上工作。"
+        title="Kafka 集群"
+        desc="管理连接并查看集群资源状态。"
         right={
           <>
             <span className="badge mute">{clusters.length} 个集群</span>
@@ -123,7 +201,7 @@ export function ClustersPage() {
             }} disabled={loading} className="btn btn-ghost btn-sm">
               {loading ? "刷新中…" : "↻ 刷新"}
             </button>
-            <button
+            <button disabled={readonly} title={readonly ? "只读巡检模式下禁止新增集群" : undefined}
               onClick={() => { setEditing({ ...EMPTY }); setErr(null); setActionError(null); }}
               className="btn btn-primary btn-sm !min-h-[32px]">
               + 新增集群
@@ -133,6 +211,8 @@ export function ClustersPage() {
       />
 
       {actionError && <div className="alert err mb-3">{actionError}</div>}
+
+      <div className="clusters-list-heading"><span><b>集群列表</b><small>共 {clusters.length} 个集群 · 选择后进入该集群工作空间</small></span><span className="clusters-list-count">{online} 在线{offline ? ` · ${offline} 离线` : ""}</span></div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-2.5">
         <label className="sr-only" htmlFor="cluster-search">搜索集群</label>
@@ -150,7 +230,7 @@ export function ClustersPage() {
           <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-400/10 text-xl text-sky-300">▦</span>
           <div className="text-[15px] font-semibold text-slate-100">还没有纳管集群</div>
           <div className="mt-1 max-w-sm text-[12px] text-[var(--text-faint)]">添加 Bootstrap 地址后即可连接 Kafka，并在概览中查看集群状态。</div>
-          <button onClick={() => { setEditing({ ...EMPTY }); setErr(null); }} className="btn btn-primary btn-sm mt-4">+ 添加第一个集群</button>
+          <button disabled={readonly} title={readonly ? "只读巡检模式下禁止新增集群" : undefined} onClick={() => { setEditing({ ...EMPTY }); setErr(null); }} className="btn btn-primary btn-sm mt-4">+ 添加第一个集群</button>
         </div>
       )}
 
@@ -163,7 +243,7 @@ export function ClustersPage() {
           const dot = probing === c.id ? "bg-sky-400" : h?.connected == null ? "bg-slate-500" : h.connected ? "bg-emerald-400" : "bg-rose-400";
           return (
             <div key={c.id} className="space-y-2">
-              <div className={`card fade-up p-4 transition-all ${active ? "!border-sky-400/50 !shadow-[0_0_0_1px_rgba(56,189,248,0.22),0_16px_32px_-24px_rgba(0,0,0,0.9)]" : "hover:!border-[#2a3c60]"}`}>
+              <div className={`card cluster-row-card fade-up p-4 transition-all ${active ? "is-current" : ""}`}>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
                   <div className="flex min-w-[260px] flex-1 items-center gap-3">
                     <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -180,11 +260,11 @@ export function ClustersPage() {
                     </div>
                   </div>
                   <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
-                  {!active && <button onClick={() => select(c.id)} className="btn btn-primary btn-sm">进入</button>}
+                  {!active && <button onClick={() => enterCluster(c.id)} className="btn btn-primary btn-sm">进入工作空间</button>}
                   <button onClick={() => void doProbe(c.id)} disabled={probing === c.id} className="btn btn-ghost btn-sm">
                     {probing === c.id ? "探测中…" : "探测"}
                   </button>
-                  <button onClick={() => { setQuery(""); setEditing({ ...c }); setErr(null); setActionError(null); }} className="btn btn-ghost btn-sm">编辑</button>
+                  <button onClick={() => void openEdit(c)} disabled={readonly || loadingMonitorConfig} title={readonly ? "只读巡检模式下禁止编辑集群" : undefined} className="btn btn-ghost btn-sm">{loadingMonitorConfig ? "读取配置…" : "编辑"}</button>
                   <button
                   onClick={() => {
                     select(c.id);
@@ -201,7 +281,7 @@ export function ClustersPage() {
                     try { await remove(c.id); }
                     catch (e) { setActionError(e instanceof Error ? e.message : String(e)); }
                   }}
-                    className="btn btn-danger-ghost btn-sm">
+                    disabled={readonly} title={readonly ? "只读巡检模式下禁止移除集群" : undefined} className="btn btn-danger-ghost btn-sm">
                     移除
                   </button>
                   </div>
@@ -243,7 +323,7 @@ export function ClustersPage() {
               </div>
               {editing?.id === c.id && (
                 <ClusterEditor draft={editing} onChange={setEditing} onSubmit={() => void submit()}
-                  onCancel={() => setEditing(null)} busy={busy} err={err} />
+                  onCancel={() => setEditing(null)} busy={busy} err={err} readonly={readonly} />
               )}
             </div>
           );
@@ -260,7 +340,7 @@ export function ClustersPage() {
       {editing && !editing.id && (
         <div className="mt-3">
           <ClusterEditor draft={editing} onChange={setEditing} onSubmit={() => void submit()}
-            onCancel={() => setEditing(null)} busy={busy} err={err} />
+            onCancel={() => setEditing(null)} busy={busy} err={err} readonly={readonly} />
         </div>
       )}
 

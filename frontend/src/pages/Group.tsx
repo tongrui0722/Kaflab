@@ -3,7 +3,7 @@ import { DEFAULT_SECURITY } from "../api/producer";
 import { useConn } from "../conn";
 import { useAuth, authHeaders } from "../auth";
 import { useLab } from "../lab";
-import { PageHeader } from "../components/bits";
+import { GroupStateBadge, PageHeader } from "../components/bits";
 
 const inputCls = "field mono";
 const labelCls = "lbl";
@@ -139,7 +139,7 @@ export function GroupPage() {
 
   const shown = rows.filter((r) => r.groupId.includes(filter.trim()));
   const selRow = rows.find((r) => r.groupId === sel) ?? null;
-  const activeCount = rows.filter((r) => (r.state ?? "") !== "Empty" && !r.error).length;
+  const activeCount = rows.filter((r) => (r.state ?? "").toLowerCase() !== "empty" && !r.error).length;
   const totalLagAll = rows.reduce((a, r) => a + (r.totalLag ?? 0), 0);
 
   return (
@@ -166,7 +166,7 @@ export function GroupPage() {
       {/* 全量一览 */}
       <div className="card p-3.5">
         <div className="card-t">
-          <span className="text-[13px] font-bold text-slate-100">消费组一览</span>
+          <span className="text-[13px] font-bold text-slate-800">消费组一览</span>
           <span className="badge mute">{rows.length} 组</span>
           <span className="badge ok">{activeCount} 活跃</span>
           {totalLagAll > 0 && <span className="badge warn">总 LAG {totalLagAll}</span>}
@@ -192,12 +192,10 @@ export function GroupPage() {
                   return (
                     <tr key={r.groupId} onClick={() => pick(r.groupId)}
                       className={`cursor-pointer ${isSel ? "!bg-[rgba(56,189,248,0.09)]" : ""}`}>
-                      <td className="mono max-w-[200px] truncate font-semibold text-slate-100">{r.groupId}</td>
+                      <td className="mono max-w-[200px] truncate font-semibold text-slate-800">{r.groupId}</td>
                       <td>
                         {r.error ? <span className="badge err">查询失败</span>
-                          : (r.state ?? "") === "Empty"
-                            ? <span className="badge mute">Empty</span>
-                            : <span className="badge run">{r.state ?? "?"}</span>}
+                          : <GroupStateBadge state={r.state} />}
                       </td>
                       <td>
                         <span className={`badge ${(r.memberCount ?? 0) > 0 ? "ok" : "mute"}`}>
@@ -246,7 +244,7 @@ export function GroupPage() {
         {/* 选中组明细 */}
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">组明细</span>
+              <span className="text-[13px] font-bold text-slate-800">组明细</span>
               {selRow ? <span className="badge run mono">{selRow.groupId}</span> : <span className="badge mute">未选择</span>}
             </div>
             {!selRow && <div className="py-6 text-center text-[12px] text-slate-500">点上方列表任意一行查看成员与分区明细。</div>}
@@ -255,19 +253,19 @@ export function GroupPage() {
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                   <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                     <div className="card-title">State</div>
-                    <div className="mono mt-0.5 truncate text-[12px] text-slate-100">{selRow.state ?? "—"}</div>
+                    <div className="mono mt-0.5 truncate text-[12px] text-slate-800">{selRow.state ?? "—"}</div>
                   </div>
                   <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                     <div className="card-title">Protocol</div>
-                    <div className="mono mt-0.5 truncate text-[12px] text-slate-100" title={selRow.protocolType || selRow.protocol || "—"}>{selRow.protocolType || selRow.protocol || "—"}</div>
+                    <div className="mono mt-0.5 truncate text-[12px] text-slate-800" title={selRow.protocolType || selRow.protocol || "—"}>{selRow.protocolType || selRow.protocol || "—"}</div>
                   </div>
                   <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                     <div className="card-title">成员</div>
-                    <div className="mono mt-0.5 text-[12px] text-slate-100">{selRow.memberCount ?? 0}</div>
+                    <div className="mono mt-0.5 text-[12px] text-slate-800">{selRow.memberCount ?? 0}</div>
                   </div>
                   <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                     <div className="card-title">Coordinator</div>
-                    <div className="mono mt-0.5 truncate text-[12px] text-slate-100" title={selRow.coordinator ? `#${selRow.coordinator.id} ${selRow.coordinator.host}:${selRow.coordinator.port}` : "—"}>
+                    <div className="mono mt-0.5 truncate text-[12px] text-slate-800" title={selRow.coordinator ? `#${selRow.coordinator.id} ${selRow.coordinator.host}:${selRow.coordinator.port}` : "—"}>
                       {selRow.coordinator ? `#${selRow.coordinator.id}` : "—"}
                     </div>
                   </div>
@@ -282,10 +280,10 @@ export function GroupPage() {
                         <tbody>
                           {(selRow.members ?? []).map((m) => (
                             <tr key={m.memberId}>
-                              <td className="mono text-[11.5px] text-slate-200">{m.clientId || "—"}</td>
+                              <td className="mono text-[11.5px] text-slate-700">{m.clientId || "—"}</td>
                               <td className="mono text-[11.5px] text-slate-400">{m.clientHost || "—"}</td>
                               <td className="mono max-w-[220px] truncate text-[11px] text-slate-500" title={m.memberId}>{m.memberId}</td>
-                              <td className="mono text-[11.5px] text-slate-300">
+                              <td className="mono text-[11.5px] text-slate-600">
                                 {(m.assignment ?? []).length === 0 ? <span className="text-slate-600">—</span>
                                   : (m.assignment ?? []).map((a) => (
                                     <div key={a.topic}>{a.topic}: P[{a.partitions.join(",")}]</div>
@@ -318,7 +316,7 @@ export function GroupPage() {
                           <tbody>
                             {lag.rows.map((r) => (
                               <tr key={`${r.topic}-${r.partition}`}>
-                                <td className="max-w-[160px] truncate text-slate-200">{r.topic}</td>
+                                <td className="max-w-[160px] truncate text-slate-700">{r.topic}</td>
                                 <td>{r.partition}</td>
                                 <td>{r.leader}</td>
                                 <td>{r.end ?? "—"}</td>
@@ -343,21 +341,20 @@ export function GroupPage() {
             )}
           </div>
 
-        {/* 演示操作（只读模式隐藏） */}
-        {!readonly && (
+        {/* 操作入口始终显示；只读模式下禁用写操作。 */}
           <div className="card p-3.5">
-            <div className="card-t"><span className="text-[13px] font-bold text-slate-100">演示操作</span></div>
+            <div className="card-t"><span className="text-[13px] font-bold text-slate-800">演示操作</span></div>
             <div className="grid grid-cols-2 items-end gap-2 xl:grid-cols-[1fr_1fr_auto_auto]">
               <div><label className={labelCls}>Group ID</label>
-                <input className={inputCls} value={form.groupId}
+                <input className={inputCls} value={form.groupId} disabled={readonly}
                   onChange={(e) => setForm({ ...form, groupId: e.target.value })} /></div>
               <div><label className={labelCls}>Topics</label>
-                <input className={inputCls} value={form.topics} placeholder="逗号分隔"
+                <input className={inputCls} value={form.topics} disabled={readonly} placeholder="逗号分隔"
                   onChange={(e) => setForm({ ...form, topics: e.target.value })} /></div>
-              <button onClick={() => requireLab(() => { void joinDemo(); })} disabled={loading} className="btn btn-ghost">
+              <button onClick={() => requireLab(() => { void joinDemo(); })} disabled={readonly || loading} title={readonly ? "只读巡检模式下禁止入组演示" : undefined} className="btn btn-ghost">
                 {busy === "join" ? "入组中…" : "Join → 心跳 → 离组"}
               </button>
-              <button onClick={() => requireLab(() => { void rebalanceDemo(); })} disabled={loading} className="btn btn-ghost">
+              <button onClick={() => requireLab(() => { void rebalanceDemo(); })} disabled={readonly || loading} title={readonly ? "只读巡检模式下禁止重平衡演示" : undefined} className="btn btn-ghost">
                 {busy === "rebalance" ? "演示中…" : "Rebalance 演示"}
               </button>
             </div>
@@ -365,13 +362,11 @@ export function GroupPage() {
               结束自动离组，位点保留，LAG 照常可查。
             </div>
           </div>
-        )}
 
-        {!readonly && (
           <div className="layout-grid layout-2eq">
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">入组结果</span>
+              <span className="text-[13px] font-bold text-slate-800">入组结果</span>
               {joinOut && <span className="badge ok ml-auto">gen {String(joinOut["generation"])}</span>}
             </div>
             {!joinOut && <div className="py-4 text-center text-[12px] text-slate-500">运行一次入组演示后显示结果。</div>}
@@ -381,12 +376,12 @@ export function GroupPage() {
                   ["Sync err", joinOut["syncError"] ?? 0], ["Heartbeat err", joinOut["heartbeatError"]]].map(([k, v]) => (
                   <div key={String(k)} className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                     <div className="card-title">{String(k)}</div>
-                    <div className="mono mt-0.5 text-[12px] text-slate-100">{String(v)}</div>
+                    <div className="mono mt-0.5 text-[12px] text-slate-800">{String(v)}</div>
                   </div>
                 ))}
                 <div className="col-span-2 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                   <div className="card-title">Member ID</div>
-                  <div className="mono mt-0.5 break-all text-[11px] text-slate-300">{String(joinOut["memberId"])}</div>
+                  <div className="mono mt-0.5 break-all text-[11px] text-slate-600">{String(joinOut["memberId"])}</div>
                 </div>
               </div>
             )}
@@ -394,7 +389,7 @@ export function GroupPage() {
 
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">Rebalance 结果</span>
+              <span className="text-[13px] font-bold text-slate-800">Rebalance 结果</span>
               {rebalOut && (rebalOut.rebalanced
                 ? <span className="badge ok ml-auto">✓ 已发生</span>
                 : <span className="badge warn ml-auto">未观察到递增</span>)}
@@ -413,10 +408,10 @@ export function GroupPage() {
                 <div className="scroll-box mt-2 max-h-[300px] space-y-1 overflow-y-auto overscroll-contain pr-1">
                   {rebalOut.steps.map((s, i) => (
                     <div key={i} className="codebox !p-1.5 !text-[10.5px]">
-                      <span className="text-sky-300">{s.step}</span>
+                      <span className="text-sky-700">{s.step}</span>
                       {s.generation != null && <span className="text-slate-500"> gen={s.generation}</span>}
-                      {s.errorCode != null && s.errorCode !== 0 && <span className="text-rose-300"> ERR={s.errorCode} {s.errorName}</span>}
-                      {s.note && <span className="text-amber-200/80"> · {s.note}</span>}
+                      {s.errorCode != null && s.errorCode !== 0 && <span className="text-rose-600"> ERR={s.errorCode} {s.errorName}</span>}
+                      {s.note && <span className="text-amber-700/80"> · {s.note}</span>}
                     </div>
                   ))}
                 </div>
@@ -424,7 +419,6 @@ export function GroupPage() {
             )}
           </div>
           </div>
-        )}
       </div>
     </div>
   );

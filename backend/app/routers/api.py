@@ -88,6 +88,20 @@ async def auth_me(request: Request):
     return {"mode": mode}
 
 
+@router.post("/api/auth/mode")
+async def auth_switch_mode(body: dict, request: Request):
+    """在已认证会话内切换只读/完整功能范围，与登录时可选模式保持一致。"""
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token or token not in _auth_tokens:
+        raise HTTPException(401, "登录已失效，请重新登录")
+    mode = body.get("mode")
+    if mode not in ("readonly", "full"):
+        raise HTTPException(400, "mode must be readonly|full")
+    _auth_tokens[token] = mode
+    return {"mode": mode}
+
+
 @router.get("/api/health")
 async def health():
     return {"ok": True, "service": "kafka-client-lab"}
@@ -223,6 +237,7 @@ async def list_clusters(request: Request):
 
 @router.post("/api/clusters")
 async def save_cluster(body: dict, request: Request):
+    _need_lab(request)
     try:
         return request.app.state.clusters.save(body or {}).model_dump()
     except ValueError as e:
@@ -231,6 +246,7 @@ async def save_cluster(body: dict, request: Request):
 
 @router.delete("/api/clusters/{cid}")
 async def delete_cluster(cid: str, request: Request):
+    _need_lab(request)
     if not request.app.state.clusters.delete(cid):
         raise HTTPException(404, "cluster not found")
     return {"deleted": cid}
@@ -300,19 +316,44 @@ async def cluster_topics(cid: str, request: Request):
         from ..producer.shared import _metadata_dict
         meta = _metadata_dict(meta_dec)
         out = []
+        broker_stats = {
+            int(b["id"]): {"id": int(b["id"]), "host": b.get("host", ""),
+                           "port": int(b.get("port") or 0), "leaders": 0,
+                           "replicas": 0, "isr": 0}
+            for b in meta["brokers"] if b.get("id") is not None
+        }
         for t in meta["topics"]:
             ps = t.get("partitions", [])
+            offline_partitions = 0
+            under_replicated_partitions = 0
+            for p in ps:
+                leader = p.get("leader", -1)
+                replicas = p.get("replicas", []) or []
+                isr = p.get("isr", []) or []
+                if leader is None or leader < 0:
+                    offline_partitions += 1
+                elif leader in broker_stats:
+                    broker_stats[leader]["leaders"] += 1
+                if len(isr) < len(replicas):
+                    under_replicated_partitions += 1
+                for bid in replicas:
+                    if bid in broker_stats:
+                        broker_stats[bid]["replicas"] += 1
+                for bid in isr:
+                    if bid in broker_stats:
+                        broker_stats[bid]["isr"] += 1
             out.append({
                 "topic": t["topic"],
                 "partitions": len(ps),
                 "replication": max((len(p.get("replicas", [])) for p in ps), default=0),
                 "leaders": sorted({p.get("leader") for p in ps if p.get("leader", -1) >= 0}),
-                "hasOffline": any(p.get("leader", -1) < 0 for p in ps),
-                "hasUnderReplicated": any(
-                    len(p.get("isr", [])) < len(p.get("replicas", [])) for p in ps),
+                "offlinePartitions": offline_partitions,
+                "underReplicatedPartitions": under_replicated_partitions,
+                "hasOffline": offline_partitions > 0,
+                "hasUnderReplicated": under_replicated_partitions > 0,
             })
         out.sort(key=lambda x: x["topic"])
-        return {"clusterId": cid, "brokers": meta["brokers"], "topics": out}
+        return {"clusterId": cid, "brokers": meta["brokers"], "brokerStats": list(broker_stats.values()), "topics": out}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"topics failed: {type(e).__name__}: {e}")
     finally:
@@ -716,6 +757,194 @@ async def cluster_groups_overview(cid: str, request: Request):
             saslUsername=c.saslUsername, saslPassword=c.saslPassword))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"groups overview failed: {type(e).__name__}: {e}")
+
+
+async def _groups_snapshot(cid: str, request: Request, timeout_ms: int = 10000) -> dict:
+    """Internal full group snapshot used by overview sampling; public group APIs omit rate counters."""
+    from ..models import GroupDescribeRequest as _G
+    c = request.app.state.clusters.get(cid)
+    if not c:
+        raise HTTPException(404, "cluster not found")
+    engine: ConsumerEngine = request.app.state.consumer
+    return await engine.groups_overview(_G(
+        bootstrap=c.bootstrap, groupId="probe", clientId="kafka-sim-01",
+        requestTimeoutMs=timeout_ms, securityProtocol=c.securityProtocol,
+        saslMechanism=c.saslMechanism, saslUsername=c.saslUsername,
+        saslPassword=c.saslPassword))
+
+
+@router.get("/api/clusters/{cid}/overview")
+async def cluster_overview(cid: str, request: Request):
+    """集群工作空间快照：Metadata + 消费组 Lag，并落库供趋势使用。"""
+    if _auth_mode(request) is None:
+        raise HTTPException(401, "unauthorized")
+    if not request.app.state.clusters.get(cid):
+        raise HTTPException(404, "cluster not found")
+    import asyncio as _asyncio
+    import time as _t
+    from .. import monitoring as _mon
+    ts = int(_t.time())
+    topic_data, group_data = await _asyncio.gather(
+        cluster_topics(cid, request), _groups_snapshot(cid, request), return_exceptions=True)
+    snap: dict = {"brokers": [], "topics": [], "groups": [], "errors": []}
+    if isinstance(topic_data, Exception):
+        snap["errors"].append(f"元数据采集失败：{topic_data}")
+    else:
+        snap["brokers"] = topic_data.get("brokers", [])
+        snap["topics"] = topic_data.get("topics", [])
+    if isinstance(group_data, Exception):
+        snap["errors"].append(f"消费组采集失败：{group_data}")
+    else:
+        snap["groups"] = group_data.get("groups", [])
+    topics = snap["topics"]
+    groups = snap["groups"]
+    valid_groups = [g for g in groups if not g.get("error") and isinstance(g.get("totalLag"), (int, float))]
+    lag_unknown_groups = len(groups) - len(valid_groups)
+    lag_unknown_partitions = sum(int(g.get("uncommitted") or 0) for g in valid_groups)
+    lag_state = ("unavailable" if isinstance(group_data, Exception) else
+                 "complete" if not groups or (lag_unknown_groups == 0 and lag_unknown_partitions == 0) else
+                 "partial")
+    total_lag = (sum(float(g["totalLag"]) for g in valid_groups)
+                 if not isinstance(group_data, Exception) else None)
+    broker_stats = topic_data.get("brokerStats", []) if not isinstance(topic_data, Exception) else []
+    offline_partitions = sum(int(t.get("offlinePartitions") or 0) for t in topics)
+    under_replicated_partitions = sum(int(t.get("underReplicatedPartitions") or 0) for t in topics)
+    topics_with_issues = sum(1 for t in topics if t.get("hasOffline") or t.get("hasUnderReplicated"))
+    summary = {
+        "brokerCount": len(snap["brokers"]),
+        "topicCount": len(topics),
+        "partitionCount": sum(t.get("partitions", 0) for t in topics),
+        "offlineTopics": sum(1 for t in topics if t.get("hasOffline")),
+        "underReplicatedTopics": sum(1 for t in topics if t.get("hasUnderReplicated")),
+        "offlinePartitionCount": offline_partitions,
+        "underReplicatedPartitionCount": under_replicated_partitions,
+        "topicsWithIssues": topics_with_issues,
+        "groupCount": len(groups),
+        "memberCount": sum(int(g.get("memberCount") or 0) for g in groups if not g.get("error")),
+        "totalLag": total_lag,
+        "lagState": lag_state,
+        "lagUnknownGroups": lag_unknown_groups,
+        "lagUnknownPartitions": lag_unknown_partitions,
+    }
+    lag_top = sorted(
+        ({"groupId": g.get("groupId"), "state": g.get("state"),
+          "memberCount": g.get("memberCount", 0), "totalLag": g.get("totalLag", 0),
+          "uncommitted": g.get("uncommitted", 0)} for g in valid_groups),
+        key=lambda g: g["totalLag"], reverse=True)[:10]
+    lag_note = ("部分消费组位点不完整，合计为近似值" if lag_state == "partial"
+                else "消费组数据不可用" if lag_state == "unavailable" else "")
+    try:
+        for g in valid_groups:
+            _mon.record_sample(cid, "group_lag", "__total__", float(g["totalLag"]),
+                               ts, {"consumergroup": g.get("groupId")})
+        _mon.set_collector(cid, True, ts, None)
+    except Exception as e:  # noqa: BLE001
+        snap["errors"].append(f"采样落库失败：{e}")
+    return {"summary": summary, "brokers": snap["brokers"], "brokerStats": broker_stats,
+            "lagTop": lag_top, "groups": groups, "topics": topics,
+            "collector": _mon.get_collector(cid), "collectedAt": ts * 1000,
+            "errors": snap["errors"], "lagNote": lag_note}
+
+
+@router.get("/api/clusters/{cid}/trends")
+async def cluster_trends(cid: str, request: Request, metric: str = "group_lag",
+                         hours: float = 1):
+    """趋势查询：从采样库读取序列点；group_lag 按消费组拆分并合成集群合计。"""
+    if _auth_mode(request) is None:
+        raise HTTPException(401, "unauthorized")
+    if not request.app.state.clusters.get(cid):
+        raise HTTPException(404, "cluster not found")
+    import time as _t
+    from .. import monitoring as _mon
+    # Overview writes group_lag samples. Querying group_lag_now here made the
+    # trend endpoint permanently empty even though the snapshot was collecting Lag.
+    store_metric = metric
+    try:
+        hours = max(0.05, min(72, float(hours)))
+    except (TypeError, ValueError):
+        hours = 1
+    since_ts = int(_t.time()) - int(hours * 3600)
+    rows = _mon.query_points(cid, store_metric, since_ts)
+    # Read the old metric name for installations that sampled before the
+    # overview recorder was standardized on `group_lag`.
+    if metric == "group_lag" and not rows:
+        rows = _mon.query_points(cid, "group_lag_now", since_ts)
+    points: list[dict] = []
+    for r in rows:
+        try:
+            labels = json.loads(r.get("labels") or "{}")
+        except Exception:  # noqa: BLE001
+            labels = {}
+        series = labels.get("consumergroup") or r.get("series") or "__total__"
+        points.append({"series": series, "value": r.get("value"), "ts": r.get("ts")})
+    if metric == "group_lag":
+        totals: dict[int, float] = {}
+        for p in points:
+            if p["series"] == "__total__":
+                continue
+            totals[p["ts"]] = totals.get(p["ts"], 0) + float(p["value"] or 0)
+        for ts, value in totals.items():
+            points.append({"series": "__total__", "value": value, "ts": ts})
+    points.sort(key=lambda p: p["ts"])
+    return {"points": points, "metric": metric, "hours": hours}
+
+
+@router.get("/api/monitoring/catalog")
+async def monitoring_catalog(request: Request):
+    if _auth_mode(request) is None:
+        raise HTTPException(401, "unauthorized")
+    from .. import monitoring as _mon
+    return {"metrics": _mon.CATALOG, "retentionDays": _mon.RETENTION_DAYS}
+
+
+@router.get("/api/clusters/{cid}/topics/{topic}/config")
+async def topic_config_get(cid: str, topic: str, request: Request):
+    """读取 Topic 配置（含来源与只读标记）。"""
+    if _auth_mode(request) is None:
+        raise HTTPException(401, "unauthorized")
+    c = request.app.state.clusters.get(cid)
+    if not c:
+        raise HTTPException(404, "cluster not found")
+    from ..topic_config import describe_topic_config
+    engine: ConsumerEngine = request.app.state.consumer
+    sec = SecurityConfig(securityProtocol=c.securityProtocol, saslMechanism=c.saslMechanism,
+                         saslUsername=c.saslUsername, saslPassword=c.saslPassword)
+    try:
+        configs = await describe_topic_config(engine.traces, c.bootstrap, topic, sec)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"config failed: {type(e).__name__}: {e}")
+    return {"topic": topic,
+            "configs": configs,
+            "editable": [x["name"] for x in configs if not x["readOnly"]],
+            "readonly": [x["name"] for x in configs if x["readOnly"]],
+            "sensitive": [x["name"] for x in configs if x["isSensitive"]]}
+
+
+@router.put("/api/clusters/{cid}/topics/{topic}/config")
+async def topic_config_put(cid: str, topic: str, request: Request):
+    """修改 Topic 配置：value 为 null/空串表示删除覆盖（恢复默认）。仅全部功能模式。"""
+    _need_lab(request)
+    c = request.app.state.clusters.get(cid)
+    if not c:
+        raise HTTPException(404, "cluster not found")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    raw = body.get("configs", {}) or {}
+    changes = {k: (None if v is None or v == "" else str(v)) for k, v in raw.items()}
+    if not changes:
+        raise HTTPException(400, "没有可保存的变更")
+    from ..topic_config import alter_topic_config
+    engine: ConsumerEngine = request.app.state.consumer
+    sec = SecurityConfig(securityProtocol=c.securityProtocol, saslMechanism=c.saslMechanism,
+                         saslUsername=c.saslUsername, saslPassword=c.saslPassword)
+    try:
+        result = await alter_topic_config(engine.traces, c.bootstrap, topic, changes, sec)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"alter failed: {type(e).__name__}: {e}")
+    result.update({"topic": topic})
+    return result
 
 
 @router.get("/api/clusters/{cid}/groups/{group_id}/lag")

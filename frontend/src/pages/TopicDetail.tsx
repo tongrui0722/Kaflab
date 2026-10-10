@@ -4,6 +4,7 @@ import { useConn } from "../conn";
 import { useAuth, authHeaders } from "../auth";
 import { PageHeader } from "../components/bits";
 import { TopicMessages } from "./TopicMessages";
+import { TopicConfigPanel } from "./TopicConfig";
 
 const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
 
@@ -157,13 +158,14 @@ export function TopicDetailPage() {
         right={
           <>
             <button onClick={() => { window.location.hash = "#/topics"; }} className="btn btn-ghost btn-sm">← Topics</button>
-            {!readonly && !confirmDel && (
-              <button onClick={() => setConfirmDel(true)} className="btn btn-danger-ghost btn-sm">删除</button>
+            {!confirmDel && (
+              <button onClick={() => { if (!readonly) setConfirmDel(true); }} disabled={readonly}
+                title={readonly ? "只读巡检模式下禁止删除 Topic" : undefined} className="btn btn-danger-ghost btn-sm">删除</button>
             )}
-            {!readonly && confirmDel && (
+            {confirmDel && (
               <>
                 <span className="badge err">确认删除 Topic？</span>
-                <button onClick={deleteTopic} disabled={delBusy} className="btn btn-danger-ghost btn-sm">
+                <button onClick={deleteTopic} disabled={readonly || delBusy} title={readonly ? "只读巡检模式下禁止删除 Topic" : undefined} className="btn btn-danger-ghost btn-sm">
                   {delBusy ? "删除中…" : "确认删除"}
                 </button>
                 <button onClick={() => setConfirmDel(false)} disabled={delBusy} className="btn btn-ghost btn-sm">取消</button>
@@ -182,7 +184,7 @@ export function TopicDetailPage() {
         <div role="tablist" aria-label="Topic 详情页面" className="flex gap-1 overflow-x-auto border-b border-[var(--border-soft)] px-3 pt-2 text-[12.5px] sm:px-4">
           {(["overview", "partitions", "config", "messages"] as const).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-              className={`relative shrink-0 rounded-t-lg px-3 pb-3 pt-2 transition-colors ${tab === t ? "font-semibold text-sky-300" : "text-[var(--text-faint)] hover:bg-white/[0.025] hover:text-slate-300"}`}>
+              className={`relative shrink-0 rounded-t-lg px-3 pb-3 pt-2 transition-colors ${tab === t ? "font-semibold text-sky-700" : "text-[var(--text-faint)] hover:bg-slate-900/[0.04] hover:text-slate-600"}`}>
               {t === "overview" ? "概览" : t === "partitions" ? "分区" : t === "config" ? "配置" : "消息"}
               {t === "partitions" && detail && <span className="badge mute ml-1.5">{detail.length}</span>}
               {tab === t && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded-full bg-sky-400" />}
@@ -201,7 +203,7 @@ export function TopicDetailPage() {
                 ].map((item) => (
                   <div key={item.label} className={`metric-card metric-${item.tone}`}>
                     <div className="metric-label">{item.label}</div>
-                    <div className="mono mt-1.5 text-[20px] font-bold text-slate-100">{detailLoading ? "…" : item.value}</div>
+                    <div className="mono mt-1.5 text-[20px] font-bold text-slate-800">{detailLoading ? "…" : item.value}</div>
                     <div className="mt-1 truncate text-[10.5px] text-[var(--text-faint)]">{item.note}</div>
                   </div>
                 ))}
@@ -219,7 +221,7 @@ export function TopicDetailPage() {
                       const leaders = leaderDistribution.find((item) => item.leader === broker.id)?.count ?? 0;
                       return <div key={broker.id} className="flex min-w-[170px] flex-1 items-center gap-2 rounded-lg border border-[var(--border-soft)] px-3 py-2.5">
                         <span className="badge run">#{broker.id}</span>
-                        <span className="mono min-w-0 flex-1 truncate text-[11px] text-slate-300">{broker.host}:{broker.port}</span>
+                        <span className="mono min-w-0 flex-1 truncate text-[11px] text-slate-600">{broker.host}:{broker.port}</span>
                         <span className="text-[10px] text-[var(--text-faint)]">{leaders} Leaders</span>
                       </div>;
                     })}
@@ -237,27 +239,27 @@ export function TopicDetailPage() {
                   </div>
                 </div>
               </div>
-              {!readonly && detail && (
+              {detail && (
                 <div className="grid gap-3 xl:grid-cols-2">
                   <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
-                    <div className="text-[12px] font-semibold text-slate-200">分区扩容</div>
+                    <div className="text-[12px] font-semibold text-slate-700">分区扩容</div>
                     <div className="mb-3 mt-1 text-[10.5px] text-[var(--text-faint)]">只能增加分区数，扩容后不可缩减。</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="mono text-[11px] text-slate-400">{detail.length} →</span>
-                      <input aria-label="目标分区数" type="number" min={detail.length + 1} max={1000} value={expTarget}
+                      <input aria-label="目标分区数" type="number" min={detail.length + 1} max={1000} value={expTarget} disabled={readonly}
                         onChange={(e) => setExpTarget(Math.floor(Number(e.target.value) || 0))} className="field mono nospin !h-[32px] !w-24 text-center" />
-                      <button onClick={expandPartitions} disabled={expBusy || expTarget <= detail.length} className="btn btn-ghost btn-sm">{expBusy ? "提交中…" : "扩容分区"}</button>
+                      <button onClick={expandPartitions} disabled={readonly || expBusy || expTarget <= detail.length} title={readonly ? "只读巡检模式下禁止扩容分区" : undefined} className="btn btn-ghost btn-sm">{expBusy ? "提交中…" : "扩容分区"}</button>
                     </div>
                     {expMsg && <div className={`alert mt-3 ${expMsg.includes("失败") || expMsg.includes("须") ? "err" : "info"}`}>{expMsg}</div>}
                   </div>
                   <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
-                    <div className="text-[12px] font-semibold text-slate-200">副本调整</div>
+                    <div className="text-[12px] font-semibold text-slate-700">副本调整</div>
                     <div className="mb-3 mt-1 text-[10.5px] text-[var(--text-faint)]">目标副本数不能超过 Broker 数（{brokers.length}）。</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="mono text-[11px] text-slate-400">RF {rf} →</span>
-                      <input aria-label="目标副本数" type="number" min={1} max={Math.max(brokers.length, 1)} value={rfTarget}
+                      <input aria-label="目标副本数" type="number" min={1} max={Math.max(brokers.length, 1)} value={rfTarget} disabled={readonly}
                         onChange={(e) => setRfTarget(Math.floor(Number(e.target.value) || 0))} className="field mono nospin !h-[32px] !w-24 text-center" />
-                      <button onClick={applyReplicas} disabled={rfBusy || rfTarget < 1 || rfTarget > brokers.length || rfTarget === rf} className="btn btn-ghost btn-sm">{rfBusy ? "提交中…" : "应用副本调整"}</button>
+                      <button onClick={applyReplicas} disabled={readonly || rfBusy || rfTarget < 1 || rfTarget > brokers.length || rfTarget === rf} title={readonly ? "只读巡检模式下禁止调整副本" : undefined} className="btn btn-ghost btn-sm">{rfBusy ? "提交中…" : "应用副本调整"}</button>
                     </div>
                     {rfMsg && <div className={`alert mt-3 ${rfMsg.toLowerCase().includes("failed") || rfMsg.includes("失败") ? "err" : "info"}`}>{rfMsg}</div>}
                   </div>
@@ -269,10 +271,10 @@ export function TopicDetailPage() {
             detail ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">全部分区</div><div className="mono mt-1 text-[16px] font-semibold text-slate-100">{detail.length}</div></div>
-                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">离线分区</div><div className={`mono mt-1 text-[16px] font-semibold ${offlinePartitions ? "text-rose-300" : "text-emerald-300"}`}>{offlinePartitions}</div></div>
-                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">ISR 不足</div><div className={`mono mt-1 text-[16px] font-semibold ${underReplicatedPartitions ? "text-amber-300" : "text-emerald-300"}`}>{underReplicatedPartitions}</div></div>
-                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">最小 ISR</div><div className="mono mt-1 text-[16px] font-semibold text-slate-100">{minIsr}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">全部分区</div><div className="mono mt-1 text-[16px] font-semibold text-slate-800">{detail.length}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">离线分区</div><div className={`mono mt-1 text-[16px] font-semibold ${offlinePartitions ? "text-rose-600" : "text-emerald-700"}`}>{offlinePartitions}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">ISR 不足</div><div className={`mono mt-1 text-[16px] font-semibold ${underReplicatedPartitions ? "text-amber-700" : "text-emerald-700"}`}>{underReplicatedPartitions}</div></div>
+                  <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3"><div className="text-[10px] text-[var(--text-faint)]">最小 ISR</div><div className="mono mt-1 text-[16px] font-semibold text-slate-800">{minIsr}</div></div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <input value={partitionQuery} onChange={(e) => setPartitionQuery(e.target.value)} className="field mono !h-[34px] min-w-[180px] flex-1 sm:max-w-xs" placeholder="搜索分区、Leader 或 Broker ID…" aria-label="搜索分区" />
@@ -290,8 +292,8 @@ export function TopicDetailPage() {
                       {visiblePartitions.map((p) => {
                         const offline = p.leader < 0;
                         const underReplicated = p.isr.length < p.replicas.length;
-                        return <tr key={p.partition} className="transition-colors hover:bg-white/[0.025]">
-                          <td className="!text-center text-slate-300">{p.partition}</td>
+                        return <tr key={p.partition} className="transition-colors hover:bg-slate-900/[0.04]">
+                          <td className="!text-center text-slate-600">{p.partition}</td>
                           <td className="!text-center">{offline ? <span className="badge err">无 Leader</span> : <span className="badge run">#{p.leader}</span>}</td>
                           <td className="text-slate-400">{p.replicas.map((id) => <span key={id} className="badge mute mr-1">#{id}</span>)}</td>
                           <td className="text-slate-400">{p.isr.map((id) => <span key={id} className="badge mute mr-1">#{id}</span>)}</td>
@@ -308,36 +310,13 @@ export function TopicDetailPage() {
             )
           )}
           {tab === "config" && (
-            detail ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><div className="text-[13px] font-bold text-slate-100">Topic 配置</div><div className="mt-1 text-[11px] text-[var(--text-faint)]">分区拓扑摘要来自 Kafka Metadata。</div></div>
-                  <span className="badge warn">实际 Topic 参数暂不可读取</span>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">分区数</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{detail.length}</div></div>
-                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">副本因子</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{rf}</div></div>
-                  <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4"><div className="text-[10px] font-semibold text-[var(--text-faint)]">最小 ISR</div><div className="mono mt-1.5 text-[18px] font-semibold text-slate-100">{minIsr}</div></div>
-                </div>
-                <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-4">
-                  <div className="card-title mb-3">Leader 分布</div>
-                  <div className="flex flex-wrap gap-2">
-                    {leaderDistribution.map(({ leader, count }) => <span key={leader} className={`badge ${leader < 0 ? "err" : "run"}`}>{leader < 0 ? "无 Leader" : `Broker #${leader}`} · {count} 分区</span>)}
-                  </div>
-                </div>
-                <div className="alert info">
-                  这里目前显示的是由分区元数据计算出的拓扑摘要。Topic 自定义配置（如 <span className="mono">retention.ms</span>、<span className="mono">cleanup.policy</span>）尚未接入 Kafka DescribeConfigs API；详情和修改能力列为后续缺项。
-                </div>
-              </div>
-            ) : (
-              <div className="py-8 text-center text-[12px] text-slate-500">加载中…</div>
-            )
+            <TopicConfigPanel key={`${conn.id}/${topic}`} cid={conn.id} topic={topic} readonly={readonly} />
           )}
           {tab === "messages" && (
             detail ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-end justify-between gap-2">
-                  <div><div className="text-[13px] font-bold text-slate-100">消息浏览器</div><div className="mt-1 text-[10.5px] text-[var(--text-faint)]">按分区、Offset 或时间定位；只读读取，不修改消息。</div></div>
+                  <div><div className="text-[13px] font-bold text-slate-800">消息浏览器</div><div className="mt-1 text-[10.5px] text-[var(--text-faint)]">按分区、Offset 或时间定位；只读读取，不修改消息。</div></div>
                   <span className="badge mute">{detail.length} 个分区</span>
                 </div>
                 <TopicMessages cid={conn.id} topic={topic} partitions={detail.map((p) => p.partition)} />

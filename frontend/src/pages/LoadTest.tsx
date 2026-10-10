@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConn } from "../conn";
-import { authHeaders } from "../auth";
+import { authHeaders, useAuth } from "../auth";
 import { useLab } from "../lab";
 import { PageHeader } from "../components/bits";
 
@@ -23,6 +23,8 @@ interface Job {
 
 export function LoadTestPage() {
   const { conn } = useConn();
+  const { mode: authMode } = useAuth();
+  const readonly = authMode === "readonly";
   const { requireLab } = useLab();
   const [topic, setTopic] = useState("test-topic");
   const [mode, setMode] = useState<"count" | "duration">("count");
@@ -156,23 +158,23 @@ export function LoadTestPage() {
               <input type="number" min={1} max={65536} className={inputCls} value={valueSize}
                 onChange={(e) => setValueSize(Math.min(65536, Math.max(1, Math.floor(Number(e.target.value) || 1))))} /></div>
           </div>
-          <div className="mono mt-2 rounded-lg bg-black/20 px-2 py-1.5 text-[10.5px] leading-relaxed text-slate-500">
+          <div className="mono mt-2 rounded-lg bg-slate-500/[0.07] px-2 py-1.5 text-[10.5px] leading-relaxed text-slate-500">
             分区自动 · 全部确认 · 按条数/时长结束
           </div>
-          <button onClick={() => requireLab(() => { void run(); })} disabled={running} className="btn btn-send mt-3">
+          <button onClick={() => requireLab(() => { void run(); })} disabled={readonly || running} title={readonly ? "只读巡检模式下禁止启动压测" : undefined} className="btn btn-send mt-3">
             {running ? "压测中…" : "⚡ 开始压测"}
           </button>
         </div>
         <div className="min-w-0 space-y-3">
           <div className="card p-3.5">
             <div className="card-t">
-              <span className="text-[13px] font-bold text-slate-100">进度</span>
+              <span className="text-[13px] font-bold text-slate-800">进度</span>
               {job && <span className="mono ml-auto text-[11px] text-slate-400">{job.done}/{targetLabel}{job.mode === "duration" ? ` · ${pct}%` : ` · ${pct}%`}</span>}
             </div>
             {!job && <div className="py-6 text-center text-[12px] text-slate-500">配置后点开始，结果每秒刷新。</div>}
             {job && (
               <>
-                <div className="h-2 overflow-hidden rounded bg-white/[0.06]">
+                <div className="h-2 overflow-hidden rounded bg-slate-900/[0.08]">
                   <div className="h-full rounded bg-gradient-to-r from-emerald-400 to-teal-300 transition-all" style={{ width: `${job.status === "done" ? 100 : pct}%` }} />
                 </div>
                 {job.status === "done" && (
@@ -180,7 +182,7 @@ export function LoadTestPage() {
                     {stats.map(([k, v]) => (
                       <div key={k} className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-2.5 py-2">
                         <div className="card-title">{k}</div>
-                        <div className="mono mt-0.5 text-[13px] font-bold text-slate-100">{v}</div>
+                        <div className="mono mt-0.5 text-[13px] font-bold text-slate-800">{v}</div>
                       </div>
                     ))}
                   </div>
@@ -206,7 +208,7 @@ export function LoadTestPage() {
               <div className="card p-3.5">
                 <div className="card-title mb-2">错误分布</div>
                 {(job.errors ?? []).length === 0
-                  ? <div className="py-3 text-center text-[11.5px] text-emerald-300">零失败</div>
+                  ? <div className="py-3 text-center text-[11.5px] text-emerald-700">零失败</div>
                   : (
                     <div className="space-y-1">
                       {job.errors!.map(([msg, n]) => (
@@ -220,7 +222,7 @@ export function LoadTestPage() {
               </div>
               <div className="card p-3.5">
                 <div className="card-t">
-                  <span className="text-[13px] font-bold text-slate-100">压测报告</span>
+                  <span className="text-[13px] font-bold text-slate-800">压测报告</span>
                   <span className="ml-auto flex gap-1.5">
                     <button
                       onClick={() => {
@@ -235,7 +237,7 @@ export function LoadTestPage() {
                     <button onClick={download} className="btn btn-ghost btn-sm">下载 .md</button>
                   </span>
                 </div>
-                {copied && <div className="mb-1 text-[11px] text-emerald-300">已复制 ✓</div>}
+                {copied && <div className="mb-1 text-[11px] text-emerald-700">已复制 ✓</div>}
                 {report
                   ? <pre className="codebox max-h-80 overflow-auto whitespace-pre-wrap">{report}</pre>
                   : <div className="py-3 text-center text-[11.5px] text-slate-600">报告生成中…</div>}

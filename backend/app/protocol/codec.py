@@ -1146,3 +1146,75 @@ def decode_alter_reassignments_v0(buf: bytes) -> dict:
     off = skip_response_tags(buf, off)
     return {"throttleMs": throttle, "errorCode": err,
             "errorMessage": message, "topics": out, "_end": off}
+
+
+# ---------- DescribeConfigs (v0, api 32) / AlterConfigs (v0, api 33) ----------
+# v0 非 flexible 编码，与本文件其他管理类 API 风格一致。
+# resourceType: topic = 2。DescribeConfigs 返回 per-config 的 readOnly/isDefault/isSensitive。
+
+def encode_describe_configs_v0(topic: str, names: list | None = None) -> bytes:
+    """names 为 None 时查询该 Topic 全部配置。"""
+    if names is None:
+        name_part = struct.pack(">i", -1)
+    else:
+        name_part = enc_array([enc_string(n) for n in names])
+    resource = struct.pack(">b", 2) + enc_string(topic) + name_part
+    return enc_array([resource])
+
+
+def decode_describe_configs_v0(buf: bytes) -> dict:
+    (throttle,) = struct.unpack_from(">i", buf, 0)
+    off, out = 4, []
+    n, off = dec_array_count(buf, off)
+    for _ in range(max(n, 0)):
+        (err,) = struct.unpack_from(">h", buf, off)
+        off += 2
+        msg, off = dec_string(buf, off)
+        (rtype,) = struct.unpack_from(">b", buf, off)
+        off += 1
+        rname, off = dec_string(buf, off)
+        cn, off = dec_array_count(buf, off)
+        configs = []
+        for _ in range(max(cn, 0)):
+            cname, off = dec_string(buf, off)
+            cvalue, off = dec_string(buf, off)
+            (read_only,) = struct.unpack_from(">b", buf, off)
+            off += 1
+            (is_default,) = struct.unpack_from(">b", buf, off)
+            off += 1
+            (is_sensitive,) = struct.unpack_from(">b", buf, off)
+            off += 1
+            configs.append({"name": cname, "value": cvalue,
+                            "readOnly": bool(read_only),
+                            "isDefault": bool(is_default),
+                            "isSensitive": bool(is_sensitive)})
+        out.append({"errorCode": err, "errorMessage": msg,
+                    "resourceType": rtype, "resourceName": rname,
+                    "configs": configs})
+    return {"throttleMs": throttle, "resources": out, "_end": off}
+
+
+def encode_alter_configs_v0(topic: str, entries: dict) -> bytes:
+    """entries: {name: value|None}；value 为 None 表示删除 Topic override（恢复默认）。"""
+    items = []
+    for name in sorted(entries):
+        value = entries[name]
+        items.append(enc_string(name) + enc_string(value))
+    resource = struct.pack(">b", 2) + enc_string(topic) + enc_array(items)
+    return enc_array([resource]) + b"\x00"  # validate_only = false
+
+
+def decode_alter_configs_v0(buf: bytes) -> dict:
+    (throttle,) = struct.unpack_from(">i", buf, 0)
+    off, out = 4, []
+    n, off = dec_array_count(buf, off)
+    for _ in range(max(n, 0)):
+        (err,) = struct.unpack_from(">h", buf, off)
+        off += 2
+        msg, off = dec_string(buf, off)
+        (rtype,) = struct.unpack_from(">b", buf, off)
+        off += 1
+        rname, off = dec_string(buf, off)
+        out.append({"errorCode": err, "errorMessage": msg,
+                    "resourceType": rtype, "resourceName": rname})
+    return {"throttleMs": throttle, "resources": out, "_end": off}
