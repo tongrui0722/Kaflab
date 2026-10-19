@@ -39,7 +39,7 @@ class WsMessage(BaseModel):
     event: KafkaTraceEvent
 
 
-SecurityProtocol = Literal["PLAINTEXT", "SASL_PLAINTEXT", "SASL_SSL"]
+SecurityProtocol = Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
 SaslMechanism = Literal["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
 
 
@@ -82,6 +82,7 @@ class ProduceRequest(BaseModel):
     keyHex: str = ""
     valueHex: str = ""
     messages: List[ProduceMessage] = Field(default_factory=list)
+    messageCount: int = Field(default=0, ge=0, le=10000)
     acks: str = "all"
     retries: int = 3
     requestTimeoutMs: int = 10000

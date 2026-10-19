@@ -8,7 +8,8 @@ from typing import Dict, List
 
 from ..models import KafkaTraceEvent, WsMessage
 
-_TRACE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "traces")
+_DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.join(os.path.dirname(__file__), "..", "..")
+_TRACE_DIR = os.path.join(_DATA_DIR, "traces")
 
 
 class TraceManager:

@@ -66,9 +66,9 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
               ["副本异常", String(underReplicated)],
               ["无 Leader", String(noLeader)],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
+              <div key={label} className="topology-summary-stat rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] px-3 py-2">
                 <div className="text-[10px] text-[var(--text-faint)]">{label}</div>
-                <div className={`mono mt-0.5 text-[14px] font-semibold ${label === "副本异常" && underReplicated > 0 ? "text-rose-300" : "text-slate-100"}`}>{value}</div>
+                <div className={`mono mt-0.5 text-[14px] font-semibold ${label === "副本异常" && underReplicated > 0 ? "text-rose-700" : "text-slate-800"}`}>{value}</div>
               </div>
             ))}
           </div>
@@ -85,7 +85,7 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
                     return (
                       <th key={id} className={`border-b border-[var(--border-soft)] px-1.5 py-1.5 ${focused ? "bg-sky-500/10" : ""}`}>
                         <button type="button" aria-pressed={focused} onClick={() => setFocusedBroker(focused ? null : id)}
-                          className={`w-full rounded-md px-1.5 py-1 text-left transition-colors hover:bg-sky-500/10 ${focused ? "text-sky-200" : "text-slate-300"}`}>
+                          className="topology-broker-button w-full rounded-md px-1.5 py-1 text-left">
                           <span className="block font-semibold">Broker {id}{id === actualBrokerId && actualRoute ? " · 本次发送" : ""}</span>
                           <span className="mono mt-0.5 block truncate text-[10px] text-[var(--text-faint)]" title={broker ? `${broker.host}:${broker.port}` : "地址未返回"}>{broker ? `${broker.host}:${broker.port}` : "地址未返回"}</span>
                           <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-500">Leader {leaderCount(id)} · Replica {replicaCount(id)}</span>
@@ -108,7 +108,7 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
                       <td className={`border-r border-[var(--border-soft)] px-1.5 py-2 ${selected ? "bg-[#e5effb]" : "bg-[var(--panel)]"}`}>
                         <button type="button" aria-pressed={selected} disabled={!onSelectPartition}
                           onClick={() => onSelectPartition?.(p.p)}
-                          className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-left transition-colors ${selected ? "font-semibold text-sky-200" : "text-slate-300 hover:bg-sky-500/10 hover:text-sky-100"} disabled:cursor-default`}>
+                          className="topology-partition-button flex min-h-8 items-center gap-2 rounded-md px-2 text-left disabled:cursor-default">
                           <span className="mono">P{p.p}</span>
                           {lastSent && <span className="badge warn !px-1.5 !py-0">已发</span>}
                           {selected && !lastSent && <span className="badge run !px-1.5 !py-0">目标</span>}
@@ -128,9 +128,9 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
                         return (
                         <td key={id} className={`min-w-0 px-1.5 py-2 ${focusedBroker === id ? "bg-sky-500/[0.06]" : ""}`}>
                             <div title={`${isLeader ? "Leader" : "Replica"} · ${inSync ? "ISR" : "不同步"}`} className={`flex min-h-8 min-w-0 items-center gap-1 rounded-md border px-1.5 py-1 ${isActualLeader ? "border-sky-400/60 bg-sky-500/15" : isLeader ? "border-violet-400/30 bg-violet-500/[0.08]" : inSync ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-rose-500/30 bg-rose-500/[0.08]"}`}>
-                              <span className={`topology-role-long truncate text-[10px] font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "Leader" : "Replica"}</span>
-                              <span className={`topology-role-short text-[10px] font-semibold ${isLeader ? "text-violet-200" : inSync ? "text-emerald-200" : "text-rose-200"}`}>{isLeader ? "L" : "R"}</span>
-                              <span className={`ml-auto shrink-0 text-[11px] ${inSync ? "text-emerald-300" : "text-rose-300"}`}>{inSync ? "ISR" : "!"}</span>
+                              <span className={`topology-role-long truncate text-[10px] font-semibold ${isLeader ? "text-violet-700" : inSync ? "text-emerald-700" : "text-rose-700"}`}>{isLeader ? "Leader" : "Replica"}</span>
+                              <span className={`topology-role-short text-[10px] font-semibold ${isLeader ? "text-violet-700" : inSync ? "text-emerald-700" : "text-rose-700"}`}>{isLeader ? "L" : "R"}</span>
+                              <span className={`ml-auto shrink-0 text-[11px] ${inSync ? "text-emerald-700" : "text-rose-700"}`}>{inSync ? "ISR" : "!"}</span>
                             </div>
                           </td>
                         );
@@ -143,7 +143,7 @@ export function TopologyGraph({ topic = "test-topic", partitions = [], brokers =
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[var(--text-faint)]">
             <span>Leader 是分区当前写入节点；ISR 表示已跟上 Leader 的副本。点击 Broker 表头可高亮其 Leader/Replica 分区。</span>
-            {focusedBroker != null && <span className="mono text-sky-300">当前聚焦 Broker {focusedBroker}</span>}
+            {focusedBroker != null && <span className="mono text-sky-700">当前聚焦 Broker {focusedBroker}</span>}
           </div>
         </>
       )}
@@ -181,7 +181,7 @@ export function FullTimeline({ events }: { events: KafkaTraceEvent[] }) {
             <div className="mt-1 h-1 overflow-hidden rounded bg-white/[0.06]">
               <div className="h-full rounded bg-gradient-to-r from-sky-500 to-cyan-300" style={{ width: `${Math.min((rel / total) * 100, 100)}%` }} />
             </div>
-            <div className="mt-1 truncate font-semibold text-slate-200">{a}</div>
+            <div className="mt-1 truncate font-semibold text-[var(--text)]">{a}</div>
             <div className="mono truncate text-[var(--text-faint)]">{b}</div>
           </div>
         ))}

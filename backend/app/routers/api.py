@@ -5,6 +5,7 @@ import os
 import secrets
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
+from .. import monitoring
 from ..consumer.engine import ConsumerEngine
 from ..models import ConsumerFetchRequest, GroupDescribeRequest, ProduceRequest, TopicCreationRequest, error_name
 from ..network.client import KafkaClient
@@ -23,31 +24,40 @@ _sec_of = lambda r: SecurityConfig(securityProtocol=r.securityProtocol,
 # ---- 登录与模式鉴权 ----
 # mode=readonly：只读巡检；mode=full：全部功能。token 内存保存，重启后端失效。
 _auth_tokens: dict[str, str] = {}
-_USERS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "users.json")
+_DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.dirname(os.path.dirname(__file__))
+_USERS_FILE = os.path.join(_DATA_DIR, "users.json")
 
 def _load_users() -> list[dict]:
-    """每次登录都读文件：运行时改 users.json 即时生效，无需重启。"""
+    """容器由环境变量控制登录；本地模式沿用持久化用户文件。"""
+    if os.environ.get("KCL_AUTH_SOURCE") == "environment":
+        return [{"username": (os.environ.get("KCL_USERNAME") or "admin").strip() or "admin",
+                 "password": os.environ.get("KCL_PASSWORD") or "admin"}]
     try:
         with open(_USERS_FILE, encoding="utf-8") as f:
             data = json.load(f)
-            users = data.get("users", [])
-            if isinstance(users, list):
-                return [u for u in users if u.get("username") and u.get("password")]
+        users = data.get("users", []) if isinstance(data, dict) else []
+        if isinstance(users, list) and users:
+            valid = [u for u in users if isinstance(u, dict)
+                     and u.get("username") and u.get("password")]
+            if valid:
+                return valid
     except FileNotFoundError:
         pass
-    except Exception:
-        pass
-    # 文件缺失或非法：落盘默认账号后返回
-    default = {"users": [{"username": "admin", "password": os.environ.get("KCL_PASSWORD", "kafka-lab")}]}
+    except (OSError, ValueError, TypeError):
+        raise HTTPException(503, "用户配置文件读取失败，请检查 users.json") from None
+    else:
+        raise HTTPException(503, "用户配置文件无有效账号，请检查 users.json")
+    # 仅首次启动、文件不存在时创建初始账号。
+    default = {"users": [{"username": os.environ.get("KCL_USERNAME") or "admin",
+                           "password": os.environ.get("KCL_PASSWORD") or "admin"}]}
     try:
-        with open(_USERS_FILE, "w", encoding="utf-8") as f:
+        with open(_USERS_FILE, "x", encoding="utf-8") as f:
             json.dump(default, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except FileExistsError:
+        return _load_users()
+    except OSError:
+        raise HTTPException(503, "用户配置文件写入失败，请检查数据目录权限") from None
     return default["users"]
-
-def _password() -> str:
-    return os.environ.get("KCL_PASSWORD", "kafka-lab")
 
 
 @router.post("/api/auth/login")
@@ -237,9 +247,17 @@ async def list_clusters(request: Request):
 
 @router.post("/api/clusters")
 async def save_cluster(body: dict, request: Request):
-    _need_lab(request)
+    if (body or {}).get("id"):
+        _need_lab(request)
+    elif _auth_mode(request) is None:
+        raise HTTPException(401, "登录已失效（后端重启或 token 过期），请退出后重新登录")
     try:
-        return request.app.state.clusters.save(body or {}).model_dump()
+        cluster = request.app.state.clusters.save(body or {})
+        if (body or {}).get("monitoringEnabled") is False:
+            status = monitoring.get_collector(cluster.id)
+            if status["running"]:
+                monitoring.set_collector(cluster.id, False, status["last_ok"], status["last_error"])
+        return cluster.model_dump()
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -283,8 +301,11 @@ async def test_cluster(cid: str, request: Request):
             decode=codec.decode_metadata_v1)
         from ..producer.shared import _metadata_dict
         meta = _metadata_dict(all_topics_dec)
+        broker_nodes = request.app.state.clusters.observe_brokers(
+            cid, controller_dec.brokers, meta["topics"])
         return {"connected": True, "brokers": controller_dec.brokers,
                 "brokerCount": len(controller_dec.brokers),
+                "brokerNodes": broker_nodes,
                 "topicCount": len(meta["topics"]),
                 "controllerId": controller_dec.controller_id}
     except Exception as e:  # noqa: BLE001
@@ -315,6 +336,18 @@ async def cluster_topics(cid: str, request: Request):
                                        decode=codec.decode_metadata_v0)
         from ..producer.shared import _metadata_dict
         meta = _metadata_dict(meta_dec)
+        # Metadata v0 supplies the complete topic list; v1 supplies the current controller.
+        # Keep the distribution available if the controller lookup fails.
+        controller_id = None
+        try:
+            controller_dec, _, _ = await kc.call(
+                3, "Metadata", 1, codec.encode_metadata_v0([]), 3, "metadata",
+                extra_req={"topics": "ALL", "controllerLookup": True},
+                decode=codec.decode_metadata_v1)
+            if any(b.get("id") == controller_dec.controller_id for b in meta["brokers"]):
+                controller_id = controller_dec.controller_id
+        except Exception:  # noqa: BLE001
+            pass
         out = []
         broker_stats = {
             int(b["id"]): {"id": int(b["id"]), "host": b.get("host", ""),
@@ -353,7 +386,10 @@ async def cluster_topics(cid: str, request: Request):
                 "hasUnderReplicated": under_replicated_partitions > 0,
             })
         out.sort(key=lambda x: x["topic"])
-        return {"clusterId": cid, "brokers": meta["brokers"], "brokerStats": list(broker_stats.values()), "topics": out}
+        return {"clusterId": cid, "brokers": meta["brokers"], "brokerStats": list(broker_stats.values()),
+                "controllerId": controller_id,
+                "brokerNodes": request.app.state.clusters.observe_brokers(cid, meta["brokers"], meta["topics"]),
+                "topics": out}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"topics failed: {type(e).__name__}: {e}")
     finally:
@@ -775,7 +811,7 @@ async def _groups_snapshot(cid: str, request: Request, timeout_ms: int = 10000) 
 
 @router.get("/api/clusters/{cid}/overview")
 async def cluster_overview(cid: str, request: Request):
-    """集群工作空间快照：Metadata + 消费组 Lag，并落库供趋势使用。"""
+    """集群工作空间快照；Lag 趋势由后台采样任务独立落库。"""
     if _auth_mode(request) is None:
         raise HTTPException(401, "unauthorized")
     if not request.app.state.clusters.get(cid):
@@ -798,15 +834,21 @@ async def cluster_overview(cid: str, request: Request):
         snap["groups"] = group_data.get("groups", [])
     topics = snap["topics"]
     groups = snap["groups"]
+    list_groups_errors = ([] if isinstance(group_data, Exception)
+                          else group_data.get("listGroupsErrors", []))
+    if list_groups_errors:
+        snap["errors"].append(f"{len(list_groups_errors)} 个 Broker 的消费组列表采集失败")
     valid_groups = [g for g in groups if not g.get("error") and isinstance(g.get("totalLag"), (int, float))]
     lag_unknown_groups = len(groups) - len(valid_groups)
     lag_unknown_partitions = sum(int(g.get("uncommitted") or 0) for g in valid_groups)
-    lag_state = ("unavailable" if isinstance(group_data, Exception) else
-                 "complete" if not groups or (lag_unknown_groups == 0 and lag_unknown_partitions == 0) else
+    lag_state = ("unavailable" if isinstance(group_data, Exception) or (list_groups_errors and not groups) else
+                 "complete" if not groups or (lag_unknown_groups == 0 and lag_unknown_partitions == 0
+                                              and not list_groups_errors) else
                  "partial")
     total_lag = (sum(float(g["totalLag"]) for g in valid_groups)
-                 if not isinstance(group_data, Exception) else None)
+                 if lag_state != "unavailable" else None)
     broker_stats = topic_data.get("brokerStats", []) if not isinstance(topic_data, Exception) else []
+    broker_nodes = topic_data.get("brokerNodes", []) if not isinstance(topic_data, Exception) else []
     offline_partitions = sum(int(t.get("offlinePartitions") or 0) for t in topics)
     under_replicated_partitions = sum(int(t.get("underReplicatedPartitions") or 0) for t in topics)
     topics_with_issues = sum(1 for t in topics if t.get("hasOffline") or t.get("hasUnderReplicated"))
@@ -831,16 +873,11 @@ async def cluster_overview(cid: str, request: Request):
           "memberCount": g.get("memberCount", 0), "totalLag": g.get("totalLag", 0),
           "uncommitted": g.get("uncommitted", 0)} for g in valid_groups),
         key=lambda g: g["totalLag"], reverse=True)[:10]
-    lag_note = ("部分消费组位点不完整，合计为近似值" if lag_state == "partial"
+    lag_note = ("部分消费组数据或位点不完整，合计为近似值" if lag_state == "partial"
                 else "消费组数据不可用" if lag_state == "unavailable" else "")
-    try:
-        for g in valid_groups:
-            _mon.record_sample(cid, "group_lag", "__total__", float(g["totalLag"]),
-                               ts, {"consumergroup": g.get("groupId")})
-        _mon.set_collector(cid, True, ts, None)
-    except Exception as e:  # noqa: BLE001
-        snap["errors"].append(f"采样落库失败：{e}")
     return {"summary": summary, "brokers": snap["brokers"], "brokerStats": broker_stats,
+            "controllerId": topic_data.get("controllerId") if not isinstance(topic_data, Exception) else None,
+            "brokerNodes": broker_nodes,
             "lagTop": lag_top, "groups": groups, "topics": topics,
             "collector": _mon.get_collector(cid), "collectedAt": ts * 1000,
             "errors": snap["errors"], "lagNote": lag_note}
@@ -856,8 +893,7 @@ async def cluster_trends(cid: str, request: Request, metric: str = "group_lag",
         raise HTTPException(404, "cluster not found")
     import time as _t
     from .. import monitoring as _mon
-    # Overview writes group_lag samples. Querying group_lag_now here made the
-    # trend endpoint permanently empty even though the snapshot was collecting Lag.
+    # The background collector writes group_lag samples even without a login.
     store_metric = metric
     try:
         hours = max(0.05, min(72, float(hours)))
@@ -878,11 +914,16 @@ async def cluster_trends(cid: str, request: Request, metric: str = "group_lag",
         series = labels.get("consumergroup") or r.get("series") or "__total__"
         points.append({"series": series, "value": r.get("value"), "ts": r.get("ts")})
     if metric == "group_lag":
+        # Legacy page-driven sampling could write the same group more than once
+        # in one second. Keep its latest value before deriving the cluster total.
+        unique = {(p["ts"], p["series"]): p for p in points}
+        points = list(unique.values())
         totals: dict[int, float] = {}
         for p in points:
             if p["series"] == "__total__":
                 continue
             totals[p["ts"]] = totals.get(p["ts"], 0) + float(p["value"] or 0)
+        points = [p for p in points if p["series"] != "__total__" or p["ts"] not in totals]
         for ts, value in totals.items():
             points.append({"series": "__total__", "value": value, "ts": ts})
     points.sort(key=lambda p: p["ts"])
@@ -1001,32 +1042,6 @@ async def group_describe(req: GroupDescribeRequest, request: Request):
         raise HTTPException(502, f"describe group failed: {e}")
 
 
-@router.post("/api/groups/rebalance")
-async def group_rebalance(body: dict, request: Request):
-    _need_lab(request)
-    engine: ConsumerEngine = request.app.state.consumer
-    req = GroupDescribeRequest(**{k: v for k, v in body.items()
-                                  if k in GroupDescribeRequest.model_fields})
-    topics = body.get("topics", ["test-topic"])
-    try:
-        return await engine.rebalance_demo(req, topics)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"rebalance demo failed: {e}")
-
-
-@router.post("/api/groups/join")
-async def group_join(body: dict, request: Request):
-    _need_lab(request)
-    engine: ConsumerEngine = request.app.state.consumer
-    req = GroupDescribeRequest(**{k: v for k, v in body.items()
-                                  if k in GroupDescribeRequest.model_fields})
-    topics = body.get("topics", ["test-topic"])
-    try:
-        return await engine.join_sync_demo(req, topics)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"join group failed: {e}")
-
-
 @router.get("/api/groups")
 async def list_groups(request: Request, bootstrap: str = Query(""),
                       securityProtocol: str = Query("PLAINTEXT"),
@@ -1044,25 +1059,6 @@ async def list_groups(request: Request, bootstrap: str = Query(""),
         return out.get("groups", [])
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"list groups failed: {e}")
-
-
-@router.get("/api/faults")
-async def get_faults(request: Request):
-    return {"faults": request.app.state.faults.faults}
-
-
-@router.post("/api/faults")
-async def set_fault(body: dict, request: Request):
-    _need_lab(request)
-    request.app.state.faults.set(body.get("name", "unknown"), bool(body.get("enabled", True)))
-    return {"faults": request.app.state.faults.faults}
-
-
-@router.delete("/api/faults")
-async def clear_faults(request: Request):
-    _need_lab(request)
-    request.app.state.faults.clear()
-    return {"faults": {}}
 
 
 # ---- 压测（独立工具：轻量 Produce 循环 + 聚合统计 + Markdown 报告） ----
@@ -1109,6 +1105,7 @@ async def loadtest_run(body: dict, background: BackgroundTasks, request: Request
         "saslMechanism": body.get("saslMechanism", "PLAIN"),
         "saslUsername": body.get("saslUsername", ""),
         "saslPassword": body.get("saslPassword", ""),
+        "caPath": body.get("caPath", ""),
         "mode": mode, "total": total, "durationSec": duration_sec,
         "concurrency": conc, "valueSize": value_size,
     }

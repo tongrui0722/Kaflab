@@ -1,95 +1,53 @@
-# Kafka Client Lab
+# KAFLAB
 
-> Kafka Client Protocol & Trace Laboratory
->
-> **核心体验：** “我发送一条消息，然后亲眼看到 Kafka Client 到底向哪个 Broker 发了什么请求、为什么发、经过了哪些步骤、返回了什么，以及每一步耗时多少。”
+Kafka 集群工作台与客户端模拟工具。工作台用于查看集群、Topic、消费组及原有 Producer/Consumer 功能；工具区的**生产端模拟**和**消费端模拟**会在 KAFLAB 主机启动独立的本地客户端进程，连接到页面指定的 Kafka 地址。模拟工具不依赖当前选中的工作集群，也可一键带入其连接配置。
 
-`Trace > Dashboard` · `Protocol > 图表` · `真实 Client > Mock` · `链路可解释性 > UI 装饰` · `故障可复现 > 单纯监控`
+## 启动
 
----
+后端需要 Python 3.11+：
 
-## 产品定位
-
-不是 Kafka Admin UI，也不是 Monitoring UI，而是 **Kafka Client Laboratory**：通过 Web UI 操作一个真实的 Kafka Client，实时观察 `TCP → ApiVersions → Metadata → Partition/Leader 路由 → Produce/Fetch → Consumer Group/Heartbeat/Rebalance` 完整链路，面向 Kafka 学习、客户端开发、故障定位、协议分析、故障模拟。
-
-核心链（MVP 已实现）：
-
-```text
-用户输入消息 → TCP Connect → ApiVersions → Metadata → 解析Topic/Partition/Leader
-→ 建立 Leader 连接 → Produce Request → Produce Response → Offset → 完整 Trace
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --port 8000
 ```
 
-## 快速启动
-
-### 前端（静态 UI + Mock，可直接看效果）
+前端需要 Node.js：
 
 ```bash
 cd frontend
 npm install
 npm run dev
-# http://localhost:5173
 ```
 
-### 后端（Session + WebSocket + 真实 Kafka TCP Client）
+打开 `http://localhost:5173`。首次登录可使用后端生成的 `backend/app/users.json` 中的账号；未设置 `KCL_USERNAME` 和 `KCL_PASSWORD` 时初始账号为 `admin/admin`，也可通过这两个环境变量指定首次建号凭据。已有账号文件不会被环境变量覆盖。前端如需访问其他地址的后端，设置 `VITE_API_BASE`。
+
+后端启动后会立即对所有已保存集群采集一次消费组 Lag，此后每 60 秒采集一次；每个集群单次采集最多 30 秒。采样不依赖用户登录或浏览器页面，历史记录保存在 `backend/monitoring_samples.db`，保留 3 天。集群总览登录后从该历史库读取曲线；采集失败会保留已有数据并显示最近一次采集错误。停止后端后采样也会停止。
+
+## 客户端模拟
+
+运行页面不会下载依赖。先在 KAFLAB 主机准备所需的固定版本，再刷新页面选择已就绪的版本：
+
+```bash
+python backend/client_runners/setup.py python 2.16.0
+python backend/client_runners/setup.py java 4.0.1
+python backend/client_runners/setup.py node 2.2.4
+python backend/client_runners/setup.py go 1.21.0
+```
+
+目前每种客户端提供两个版本：Python confluent-kafka `2.13.2`、`2.16.0`；Java kafka-clients `3.9.1`、`4.0.1`；Node.js KafkaJS `1.16.0`、`2.2.4`；Go franz-go `1.20.5`、`1.21.0`。Python 安装脚本需要 pip，Java 需要 JDK 与 Maven，Node.js 需要 npm，Go 需要 Go 工具链。构建后的 Go 程序运行时不依赖 Go 工具链。
+
+两个模拟页支持独立配置 Bootstrap Servers、Topic、PLAINTEXT/SSL/SASL、安全认证和 CA 文件；生产端可设消息模板、分区、数量、速率、时长；消费端可设消费组、起始位置、消息数量、时长，默认**不提交 Offset**。每次运行有独立 PID、状态、实时日志和历史记录；同一主机最多并发 3 个模拟进程。停止按钮会终止对应进程。只读模式可查看日志，启动和停止需要切换到“全部功能”。
+
+运行记录保存在 `backend/client_sim_data/`（可通过 `KCL_CLIENT_SIM_DATA` 覆盖）。记录不会保存消息内容或 SASL 密码；日志最多保留 4 MB，密码会被脱敏。连接凭据只在启动时通过进程标准输入传入。请为模拟器使用专用测试 Topic，并按需控制生产条数与提交 Offset。
+
+## 验证
 
 ```bash
 cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-# 前端 .env: VITE_API_BASE=http://localhost:8000  VITE_WS_BASE=ws://localhost:8000
+python -m pytest -q
+cd ../frontend
+npm run build
 ```
 
-### 真实发送（有 Kafka 时）
-
-1. 打开 Producer 页，`Bootstrap Servers` 填如 `192.168.127.129:9092`
-2. Topic `test-topic`，Key `user001`，Value `hello kafka`，Partition `Auto`
-3. 点击 **发送消息**，中间 Trace 实时推进，点击任意节点右侧 Inspector 查看 Request/Response/HEX/Decoded
-4. 无 Kafka 时后端自动进入 `mock` 模式，回放与效果图一致的 36ms 全链路（含 offset=10231），保证验收流程不断
-
-## 技术架构
-
-```text
-Web UI (React+TS+Vite+Tailwind)
-  │ REST / WebSocket (统一 KafkaTraceEvent)
-  ▼
-Backend (FastAPI)
-  ├── Session Manager / Trace Manager
-  ├── Kafka Client Engine (原生 TCP + 二进制协议编解码, 无 librdkafka)
-  │     network/ protocol/ producer/ consumer/ fault/
-  └── WS Publisher (trace.started / request.sent / response.received / ... / completed)
-        ▼
-Kafka Broker(s)
-```
-
-* 协议与业务分离，Trace 与 Client 解耦，所有 Request/Response 必产生 TraceEvent
-* 连接配置全部由 UI 输入，代码无硬编码 Broker IP
-* 协议编解码有单元测试（`backend/tests/test_protocol.py`）
-
-## MVP 范围（本仓库已交付）
-
-* [x] Phase 0 设计文档：`docs/ui-design.md` `docs/architecture.md` `docs/api.md`
-* [x] Phase 1 前端静态 UI：Dashboard / Producer / Trace / Inspector / Metadata / Topology / Protocol / Recent / Session
-* [x] Phase 2 后端 Session + WebSocket + REST（Mock Event 联调通过）
-* [x] Phase 3 真实 Client：TCP + ApiVersions + Metadata + Produce（Python 原生实现）
-* [ ] Phase 4 Consumer 全链（FindCoordinator/JoinGroup/SyncGroup/Fetch/Heartbeat/OffsetCommit）— UI 骨架已留位，API 已预留
-* [ ] Phase 5 Fault Injection（NotLeader/Timeout/Disconnect/Rebalance 等）— UI 开关 + API 骨架已留位，默认关闭
-
-## 后续 Roadmap
-
-1. Consumer Fetch 可视化 + Consumer Group Members/Assignment 实时页
-2. Rebalance 时间线（Normal/Warning/Rebalance/Error 四态着色）
-3. Fault 矩阵：WrongBroker / MetadataTimeout / ProduceTimeout / DisconnectBeforeResponse / HeartbeatTimeout / PollTimeout
-4. HEX ↔ Decoded 双向对照 + CorrelationId 串联 + 历史 Session 回放
-5. librdkafka 可选引擎对照模式（与原生引擎 Trace 对比）
-
-## 项目结构
-
-```text
-kafka-client-lab/
-├── frontend/src/{pages,components,api,types,mock}
-├── backend/app/{network,protocol,producer,consumer,trace,session,fault,routers}
-├── docs/{ui-design.md,architecture.md,api.md}
-└── README.md
-```
-
-详细见 `docs/architecture.md` 与 `docs/api.md`。
+当前版本的模拟进程运行在 KAFLAB 所在主机。Linux Docker 镜像内已包含运行依赖；各环境可通过 `docker run -e` 传入常用配置，并将持久化数据挂载到 `/data`。构建、迁移及启动命令见 [Docker 部署指南](docs/docker.md)。

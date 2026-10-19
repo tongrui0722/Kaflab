@@ -1,5 +1,6 @@
 from __future__ import annotations
 import socket
+import ssl
 import struct
 import time
 from dataclasses import dataclass
@@ -24,14 +25,23 @@ def parse_hostport(addr: str, default_port: int = 9092) -> tuple[str, int]:
 
 
 class TcpConnector:
-    def __init__(self, timeout_ms: int = 3000):
+    def __init__(self, timeout_ms: int = 3000, use_tls: bool = False, ca_path: str = ""):
         self.timeout = max(timeout_ms, 500) / 1000.0
+        self.use_tls = use_tls
+        self.ca_path = ca_path
 
     def connect(self, host: str, port: int) -> Connection:
         start = time.time()
         s = socket.create_connection((host, port), timeout=self.timeout)
-        s.settimeout(self.timeout)
-        return Connection(s, host, port)
+        try:
+            s.settimeout(self.timeout)
+            if self.use_tls:
+                context = ssl.create_default_context(cafile=self.ca_path or None)
+                s = context.wrap_socket(s, server_hostname=host)
+            return Connection(s, host, port)
+        except Exception:
+            s.close()
+            raise
 
     @staticmethod
     def request(conn: Connection, payload_without_len: bytes) -> bytes:

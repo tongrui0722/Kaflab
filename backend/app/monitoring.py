@@ -12,7 +12,8 @@ import os
 import sqlite3
 import time
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "monitoring_samples.db")
+_DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.dirname(os.path.dirname(__file__))
+DB_PATH = os.path.join(_DATA_DIR, "monitoring_samples.db")
 RETENTION_DAYS = 3
 
 CATALOG = [
@@ -46,6 +47,31 @@ def record_sample(cluster: str, metric: str, series: str, value: float, ts: int,
         cutoff = int(time.time()) - RETENTION_DAYS * 86400
         conn.execute("DELETE FROM samples WHERE ts < ?", (cutoff,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def record_lag_snapshot(cluster: str, groups: list[dict], ts: int) -> None:
+    """Atomically replace one cluster's Lag sample for a given second."""
+    rows = [
+        (cluster, "group_lag", json.dumps({"consumergroup": g["groupId"]}, ensure_ascii=False),
+         float(g["totalLag"]), int(ts), g["groupId"])
+        for g in groups
+    ]
+    # A successful ListGroups with no groups is a real zero, not missing data.
+    if not rows:
+        rows.append((cluster, "group_lag", "{}", 0.0, int(ts), "__total__"))
+    conn = _conn()
+    try:
+        with conn:
+            conn.execute("DELETE FROM samples WHERE cluster=? AND metric='group_lag' AND ts=?",
+                         (cluster, int(ts)))
+            conn.executemany(
+                "INSERT INTO samples(cluster, metric, labels, value, ts, series) VALUES(?,?,?,?,?,?)",
+                rows,
+            )
+            conn.execute("DELETE FROM samples WHERE ts < ?",
+                         (int(time.time()) - RETENTION_DAYS * 86400,))
     finally:
         conn.close()
 

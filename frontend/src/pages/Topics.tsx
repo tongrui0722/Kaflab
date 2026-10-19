@@ -3,7 +3,7 @@ import { useConn } from "../conn";
 import { useAuth, authHeaders } from "../auth";
 import { PageHeader } from "../components/bits";
 
-const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
+const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
 const PAGE_SIZES = [10, 20, 50];
 
 interface TopicRow {
@@ -166,7 +166,7 @@ export function TopicsPage() {
       if (search && !row.topic.toLocaleLowerCase().includes(search)) return false;
       if (healthFilter === "healthy" && (row.hasOffline || row.hasUnderReplicated)) return false;
       if (healthFilter === "offline" && !row.hasOffline) return false;
-      if (healthFilter === "under-replicated" && !row.hasUnderReplicated) return false;
+      if (healthFilter === "under-replicated" && (row.hasOffline || !row.hasUnderReplicated)) return false;
       return true;
     });
     const healthRank = (row: TopicRow) => row.hasOffline ? 2 : row.hasUnderReplicated ? 1 : 0;
@@ -181,7 +181,8 @@ export function TopicsPage() {
   }, [rows, q, healthFilter, sortKey, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const offlineCount = rows.filter((row) => row.hasOffline).length;
   const underReplicatedCount = rows.filter((row) => row.hasUnderReplicated).length;
   const partitionCount = rows.reduce((sum, row) => sum + row.partitions, 0);
@@ -194,16 +195,16 @@ export function TopicsPage() {
   const healthClass = (row: TopicRow) => row.hasOffline ? "err" : row.hasUnderReplicated ? "warn" : "ok";
 
   return (
-    <div>
-      <PageHeader title="Topics" desc={`${conn.name} · Topic、分区与副本健康状态`}
+    <div className="topics-page">
+      <PageHeader title="Topics"
         right={
           <>
             <button onClick={() => void load(conn.id)} disabled={loading} className="btn btn-ghost btn-sm">
-              {loading ? "刷新中…" : "↻ 刷新"}
+              {loading ? "刷新中…" : "刷新"}
             </button>
             <button onClick={() => { if (readonly) return; setShowCreate((v) => !v); setCErr(null); setCSuccess(null); }}
-              disabled={readonly} title={readonly ? "只读巡检模式下禁止创建 Topic" : undefined}
-              className="btn btn-primary btn-sm">{showCreate ? "收起表单" : "+ 新建 Topic"}</button>
+              disabled={readonly} title={readonly ? "只读模式下禁止创建 Topic" : undefined}
+              className="btn btn-primary btn-sm">{showCreate ? "收起表单" : "新建 Topic"}</button>
           </>
         } />
 
@@ -214,41 +215,40 @@ export function TopicsPage() {
 
       <div className="mb-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {[
-          ["Topics", rows.length, "当前集群总数", "sky"],
-          ["分区", partitionCount, "全部 Topic 分区", "violet"],
-          ["离线 Topic", offlineCount, offlineCount ? "存在无 Leader 分区" : "全部有 Leader", offlineCount ? "rose" : "emerald"],
-          ["ISR 不足", underReplicatedCount, underReplicatedCount ? "副本未全部同步" : "副本同步正常", underReplicatedCount ? "amber" : "blue"],
-        ].map(([label, value, sub, tone]) => (
-          <div key={String(label)} className={`metric-card metric-${tone}`}>
+          ["Topics", rows.length, "sky"],
+          ["分区", partitionCount, "violet"],
+          ["离线 Topic", offlineCount, offlineCount ? "rose" : "emerald"],
+          ["ISR 不足", underReplicatedCount, underReplicatedCount ? "amber" : "blue"],
+        ].map(([label, value, tone]) => (
+          <div key={String(label)} className={`metric-card work-metric-card metric-${tone}`}>
             <div className="metric-label">{label}</div>
-            <div className="mono mt-1.5 text-[20px] font-bold text-slate-800">{loading ? "…" : value}</div>
-            <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">{sub}</div>
+            <div className="work-metric-value mono">{loading ? "…" : value}</div>
           </div>
         ))}
       </div>
 
       {showCreate && (
-        <div className="card mb-3 p-4">
-          <div className="card-t">
-            <span className="text-[13px] font-bold text-slate-800">创建 Topic</span>
-            <span className="text-[11px] text-[var(--text-faint)]">将在 {conn.name} 上创建</span>
+        <section className="card topic-create-panel">
+          <div className="topic-section-heading">
+            <h2>新建 Topic</h2>
+            <span className="badge mute">{conn.name}</span>
           </div>
           <fieldset disabled={readonly} className="m-0 min-w-0 border-0 p-0">
-          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_minmax(120px,.6fr)_minmax(160px,.8fr)_auto]">
-            <div><label className="lbl">Topic 名称</label>
-              <input className="field mono" value={cName} placeholder="如 order-events"
+          <div className="topic-create-grid">
+            <div><label className="lbl" htmlFor="topic-create-name">Topic 名称</label>
+              <input id="topic-create-name" className="field mono" value={cName} placeholder="如 order-events"
                 onChange={(e) => setCName(e.target.value)} /></div>
-            <div><label className="lbl">分区数</label>
-              <input type="number" min={1} max={1000} className="field mono" value={cParts}
+            <div><label className="lbl" htmlFor="topic-create-partitions">分区数</label>
+              <input id="topic-create-partitions" type="number" min={1} max={1000} className="field mono" value={cParts}
                 onChange={(e) => setCParts(Math.min(1000, Math.max(1, Math.floor(Number(e.target.value) || 1))))} /></div>
-            <div><label className="lbl">副本数（当前 {brokerCount} 台 Broker）</label>
-              <input type="number" min={1} max={Math.max(brokerCount, 1)} className="field mono" value={cRf}
+            <div><label className="lbl" htmlFor="topic-create-replicas">副本数 <span className="topic-field-note">≤ {brokerCount} Broker</span></label>
+              <input id="topic-create-replicas" type="number" min={1} max={Math.max(brokerCount, 1)} className="field mono" value={cRf}
                 onChange={(e) => setCRf(Math.min(Math.max(brokerCount, 1), Math.max(1, Math.floor(Number(e.target.value) || 1))))} /></div>
-            <button onClick={() => void createTopic()} disabled={readonly || cBusy || loading} title={readonly ? "只读巡检模式下禁止创建 Topic" : undefined} className="btn btn-primary">
+            <button type="button" onClick={() => void createTopic()} disabled={readonly || cBusy || loading} title={readonly ? "只读模式下禁止创建 Topic" : undefined} className="btn btn-primary topic-create-submit">
               {cBusy ? "创建中…" : "创建 Topic"}
             </button>
-            <div className="sm:col-span-2 xl:col-span-full">
-              <div className="mb-2 text-[11px] font-semibold text-slate-600">常用配置</div>
+            <div className="topic-create-options">
+              <div className="topic-subheading">常用配置</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div><label className="lbl">消息保留时间</label>
                   <select className="field" value={cRetentionMs} onChange={(e) => setCRetentionMs(e.target.value)}>
@@ -274,39 +274,41 @@ export function TopicsPage() {
                     placeholder="留空表示沿用默认值" onChange={(e) => setCRetentionMb(e.target.value)} />
                 </div>
               </div>
-              <details className="mt-3 rounded-lg border border-[var(--border-soft)] bg-[var(--panel-3)] p-3">
+              <details className="topic-advanced-config">
                 <summary className="cursor-pointer text-[11px] font-semibold text-slate-600">高级配置（JSON，可选）</summary>
                 <div className="mt-2">
                   <textarea className="field mono min-h-[72px] py-2" value={cConfigs}
                     placeholder={'{"max.message.bytes": "1048576"}'}
                     onChange={(e) => setCConfigs(e.target.value)} />
-                  <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">配置值使用字符串；与上方常用配置重复的键会提示错误。</div>
+                  <div className="mt-1 text-[10.5px] text-[var(--text-faint)]">配置值使用字符串，不能与常用配置重复。</div>
                 </div>
               </details>
             </div>
           </div>
           </fieldset>
           {cErr && <div className="alert err mt-3">{cErr}</div>}
-        </div>
+        </section>
       )}
 
-      <section className="card overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border-soft)] p-3.5">
-          <div className="min-w-[150px]">
-            <div className="text-[13px] font-bold text-slate-800">Topic 列表</div>
-            <div className="mt-0.5 text-[10.5px] text-[var(--text-faint)]">{filtered.length} / {rows.length} 个 Topic</div>
+      <section className="card topic-list-panel">
+        <div className="topic-list-toolbar">
+          <div className="topic-section-heading">
+            <h2>Topic 列表</h2>
+            <span className="badge mute">{filtered.length} / {rows.length}</span>
           </div>
+          <div className="topic-list-filters">
           <label className="sr-only" htmlFor="topic-search">搜索 Topic</label>
           <input id="topic-search" placeholder="搜索 Topic 名称…" value={q}
-            onChange={(e) => setQ(e.target.value)} className="field mono !h-[34px] min-w-[180px] flex-1 xl:max-w-sm" />
+            onChange={(e) => setQ(e.target.value)} className="field mono topic-search" />
           <select aria-label="按健康状态筛选" value={healthFilter} onChange={(e) => setHealthFilter(e.target.value as HealthFilter)}
-            className="field !h-[34px] !w-auto min-w-[145px]">
+            className="field topic-health-filter">
             <option value="all">全部状态</option>
             <option value="healthy">健康</option>
             <option value="offline">离线</option>
             <option value="under-replicated">ISR 不足</option>
           </select>
           {(healthFilter !== "all" || q) && <button onClick={() => { setQ(""); setHealthFilter("all"); }} className="btn btn-ghost btn-sm">清除</button>}
+          </div>
         </div>
 
         {loading && rows.length === 0 ? (
@@ -320,54 +322,56 @@ export function TopicsPage() {
           </div>
         ) : (
           <>
-            <div className="tbl-wrap max-h-[min(68vh,760px)] !rounded-none !border-0">
-              <table className="tbl mono min-w-[760px] tabular-nums">
+            <div className="tbl-wrap topic-table-wrap">
+              <table className="tbl mono topic-table tabular-nums">
                 <thead className="sticky top-0 z-10 bg-[var(--panel-2)]">
                   <tr>
                     {([["topic", "Topic"], ["partitions", "分区"], ["replication", "RF"], ["health", "状态"]] as [SortKey, string][]).map(([key, label]) => (
-                      <th key={key} className={key === "topic" ? "" : "!text-center"}>
-                        <button onClick={() => sort(key)} className="inline-flex items-center gap-1 hover:text-slate-700">
+                      <th key={key} aria-sort={sortKey === key ? (sortAsc ? "ascending" : "descending") : "none"} className={key === "topic" ? "" : "!text-center"}>
+                        <button onClick={() => sort(key)} className="topic-sort-button">
                           {label}<span className="text-sky-700">{sortKey === key ? sortAsc ? "↑" : "↓" : "↕"}</span>
                         </button>
                       </th>
                     ))}
-                    <th>Leader Brokers</th>
+                    <th title="此 Topic 各分区当前 Leader 所在的 Broker，已去重；RF 是每个分区的副本数">Leader 节点</th>
                     <th className="!text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.map((row) => (
-                    <tr key={row.topic} onClick={() => { window.location.hash = `#/topics/${encodeURIComponent(row.topic)}`; }}
-                      className="cursor-pointer transition-colors hover:bg-slate-900/[0.04]">
-                      <td className="max-w-[420px] truncate font-semibold text-slate-800" title={row.topic}>{row.topic}</td>
+                    <tr key={row.topic}>
+                      <td className="topic-name-cell" title={row.topic}><a href={`#/topics/${encodeURIComponent(row.topic)}`} className="topic-name-link">{row.topic}</a></td>
                       <td className="!text-center text-slate-600">{row.partitions}</td>
                       <td className="!text-center text-slate-600">{row.replication}</td>
                       <td className="!text-center"><span className={`badge ${healthClass(row)}`}>{healthLabel(row)}</span></td>
                       <td>
-                        <div className="flex flex-wrap gap-1">
-                          {row.leaders.length ? row.leaders.map((leader) => <span key={leader} className="badge mute">#{leader}</span>)
+                        <div className="topic-leader-list" title={`当前 Leader：${row.leaders.length ? row.leaders.map((leader) => `#${leader}`).join("、") : "无"}`}>
+                          {row.leaders.length ? <>
+                            {row.leaders.slice(0, 3).map((leader) => <span key={leader} className="badge mute">#{leader}</span>)}
+                            {row.leaders.length > 3 && <span className="badge mute" aria-label={`另外 ${row.leaders.length - 3} 个 Leader 节点`}>+{row.leaders.length - 3}</span>}
+                          </>
                             : <span className="text-[var(--text-faint)]">无 Leader</span>}
                         </div>
                       </td>
-                      <td className="!text-right"><span className="text-[11px] text-sky-700">查看详情 →</span></td>
+                      <td className="!text-right"><a href={`#/topics/${encodeURIComponent(row.topic)}`} className="topic-detail-link" aria-label={`查看 ${row.topic} 详情`}>查看详情 →</a></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-soft)] px-3.5 py-3">
+            <div className="topic-pagination">
               <span className="text-[11px] text-[var(--text-faint)]">
-                显示 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} / {filtered.length}
+                显示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} / {filtered.length}
               </span>
               <div className="flex items-center gap-2">
                 <label className="text-[11px] text-[var(--text-faint)]" htmlFor="topic-page-size">每页</label>
                 <select id="topic-page-size" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="field !h-[30px] !w-[72px] !px-2 text-center">
+                  className="field !h-[34px] !w-[82px]">
                   {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
                 </select>
-                <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page <= 1} className="btn btn-ghost btn-sm">上一页</button>
-                <span className="mono min-w-[58px] text-center text-[11px] text-slate-600">{page} / {totalPages}</span>
-                <button onClick={() => setPage((n) => Math.min(totalPages, n + 1))} disabled={page >= totalPages} className="btn btn-ghost btn-sm">下一页</button>
+                <button onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className="btn btn-ghost btn-sm">上一页</button>
+                <span className="mono min-w-[58px] text-center text-[11px] text-slate-600">{currentPage} / {totalPages}</span>
+                <button onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages} className="btn btn-ghost btn-sm">下一页</button>
               </div>
             </div>
           </>

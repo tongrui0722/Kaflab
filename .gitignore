@@ -1,5 +1,6 @@
 # Local Kafka credentials, sessions and raw protocol traces
 backend/clusters.json
+backend/broker_nodes.json
 backend/sessions.json
 backend/app/users.json
 backend/traces/
@@ -48,3 +49,12 @@ backend/sig_scan.txt
 g_scan.txt
 h_scan.txt
 scan_h.py
+backend/client_runners/installed/
+backend/client_runners/tools/
+backend/client_runners/java/target/
+backend/client_sim_data/
+data/
+release/
+.env
+docker*.env
+kaflab.env

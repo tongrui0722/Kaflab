@@ -27,13 +27,13 @@ export function TraceTimeline({ steps, selected, onSelect, total }:
             : null;
           return (
             <li key={s.index}>
-              <button onClick={() => onSelect(s.index)}
-                className={`relative flex w-full items-center gap-3 rounded-lg px-2 py-[7px] text-left transition-all ${active ? "bg-[rgba(56,189,248,0.1)] shadow-[inset_0_0_0_1px_rgba(56,189,248,0.3)]" : "hover:bg-white/[0.03]"}`}>
+              <button onClick={() => onSelect(s.index)} aria-current={active ? "step" : undefined}
+                className={`trace-step-button relative flex w-full items-center gap-3 rounded-lg px-2 py-[7px] text-left ${active ? "is-active" : ""}`}>
                 <span className={`absolute -left-[15px] flex h-[26px] w-[26px] items-center justify-center rounded-full text-[12px] font-bold ring-4 ring-[var(--panel)] ${dot}`} title={errText ?? s.title}>{glyph}</span>
                 <span className="ml-5 min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className="mono text-[11px] text-[var(--text-faint)]">{s.index}</span>
-                    <span className={`truncate text-[12.5px] font-semibold ${s.status === "error" ? "text-rose-200" : "text-slate-800"}`}>{s.title}</span>
+                    <span className={`truncate text-[12.5px] font-semibold ${s.status === "error" ? "text-rose-700" : "text-slate-800"}`}>{s.title}</span>
                     {errText && <span className="mono truncate text-[11px] text-rose-600">{errText}</span>}
                   </span>
                   <span className="mono ml-5 block truncate text-[11px] text-[var(--text-faint)]">{s.desc}</span>

@@ -43,7 +43,11 @@ export interface TraceStep {
 
 export interface RecentMsg {
   id: string; topic: string; partition: number; offset: number;
+  lastOffset?: number;
   latency: string; time: string; status: "SUCCESS" | "ERROR" | "RUNNING";
   traceId: string; events: KafkaTraceEvent[];
-  key?: string; value?: string; size?: number;
+  key?: string; value?: string; size?: number; count?: number;
+  confirmedCount?: number; batches?: number; sizeExact?: boolean;
+  sampleKeyFormat?: "text" | "hex"; sampleValueFormat?: "text" | "hex";
+  sampleTruncated?: boolean; error?: string;
 }

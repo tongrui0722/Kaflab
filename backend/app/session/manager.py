@@ -6,7 +6,8 @@ from typing import Dict, List
 
 from ..models import Session
 
-_STORE = os.path.join(os.path.dirname(__file__), "..", "..", "sessions.json")
+_DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.join(os.path.dirname(__file__), "..", "..")
+_STORE = os.path.join(_DATA_DIR, "sessions.json")
 
 
 class SessionManager:

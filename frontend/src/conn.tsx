@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SecurityForm } from "./api/producer";
+import { authHeaders } from "./auth";
 
 export interface ConnConfig extends SecurityForm {
   id: string;
   name: string;
   bootstrap: string;
+  monitoringEnabled?: boolean;
 }
 
 export interface ClusterHealth {
@@ -16,13 +18,13 @@ export interface ClusterHealth {
   error?: string;
 }
 
-const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
+const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
 const ACTIVE_KEY = "kcl-active-cluster";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;

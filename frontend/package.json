@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test:lag": "node --experimental-strip-types --test src/lagTrend.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

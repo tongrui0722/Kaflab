@@ -1,0 +1,259 @@
+/* KAFLAB UI 规范：旧页面样式之后统一应用文字、控件与表面层级。 */
+:root {
+  --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
+  --fs-page: 18px;
+  --fs-section: 14px;
+  --fs-body: 13px;
+  --fs-field: 12px;
+  --fs-note: 11.5px;
+  --ui-ink: #20364f;
+  --ui-muted: #5e748c;
+  --ui-subtle: #71869d;
+  --ui-border: #d3e0ec;
+  --ui-surface: #f7faff;
+  --ui-elevation: inset 0 1px 0 rgba(255,255,255,.92), 0 3px 12px rgba(40,72,109,.08);
+  --ui-control-elevation: inset 0 1px 0 rgba(255,255,255,.88), 0 2px 5px rgba(40,72,109,.10);
+}
+
+body { font-family: var(--font); font-size: var(--fs-body); color: var(--ui-ink); }
+button, input, select, textarea { font-family: inherit; }
+.mono, .metric-card, .overview-table .is-number, .tbl .mono { font-variant-numeric: tabular-nums; }
+.page-h h1, .clusters-page .page-h h1, .overview-hero h1 { font-size: var(--fs-page); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
+.page-h p, .ui-note { color: var(--ui-muted); font-size: var(--fs-note); font-weight: 400; line-height: 1.5; }
+.page-h p { margin-top: 3px; }
+.producer-page .card-title, .consumer-page .card-title, .sim-config .card-title,
+.loadtest-page .card-title { font-size: var(--fs-section); }
+.card-title, .overview-panel-title, .group-card-head h2, .sim-section-head h2, .loadtest-section h2 {
+  color: var(--ui-ink); font-size: var(--fs-section); font-weight: 700; line-height: 1.35; letter-spacing: 0; text-transform: none;
+}
+.card-title::before { height: 13px; vertical-align: -2px; }
+.lbl, .loadtest-field .lbl { color: #405b78; font-size: var(--fs-field); font-weight: 600; line-height: 1.4; }
+.sim-config .lbl, .loadtest-field .lbl { font-size: var(--fs-field); }
+.field, .sim-config .field, .group-filters .field { font-size: var(--fs-field); line-height: 1.4; }
+.field { min-height: 36px; }
+.field::placeholder { color: var(--ui-subtle); opacity: 1; }
+.topbar-heading .topbar-page-title, .topbar-heading .topbar-page-title.is-latin { font-size: 12.5px; font-weight: 700; }
+
+.card, .overview-panel, .overview-hero, .page-h, .cluster-row-card, .producer-column {
+  border-color: var(--ui-border); box-shadow: var(--ui-elevation);
+}
+.btn, .badge, .connection-pill, .protocol-pill { text-shadow: none; }
+.btn, .btn-send, .btn-fetch, .sim-actions .btn, .clusters-toolbar-button,
+.cluster-enter-button, .cluster-action-button { font-size: var(--fs-field); font-weight: 600; line-height: 1.4; }
+.btn-sm { min-height: 34px; font-size: var(--fs-note); }
+.btn-ghost, .btn-info, .btn-warn, .btn-danger-ghost { box-shadow: var(--ui-control-elevation); }
+.badge { min-height: 24px; padding: 2px 8px; font-size: var(--fs-note); line-height: 1.3; box-shadow: 0 1px 3px rgba(43,71,105,.10), inset 0 1px 0 rgba(255,255,255,.9); }
+.metric-label, .overview-summary-heading .metric-label { font-size: var(--fs-note); }
+.overview-summary-value, .work-metric-value { font-size: 16px; }
+.tbl { font-size: var(--fs-field); }
+.tbl thead th, .overview-table th { font-size: var(--fs-note); }
+.alert { font-size: var(--fs-note); line-height: 1.5; }
+.codebox, .sim-config-editor textarea { font-size: 12px; line-height: 1.55; }
+
+/* 辅助文字仅承担解释；异常与数据口径仍以 alert / status 显示。 */
+.producer-payload-summary small, .producer-payload-help, .producer-route-foot,
+.producer-record-hint, .sim-target-hint, .sim-install-note, .sim-config-file-note,
+.group-lag-note, .group-subhead > span:not(.badge), .overview-snapshot-time,
+.overview-health-ring-center small, .overview-health-legend-row,
+.sim-history-main small, .sim-history-meta small, .sim-drawer-head p,
+.cluster-collect-copy small { font-size: var(--fs-note); line-height: 1.5; }
+.producer-advanced summary, .producer-mode-option, .producer-trace-tab,
+.producer-history-coordinate, .producer-history-time, .producer-history-preview,
+.producer-record-facts dt, .sim-section-head > span, .sim-client-choice small,
+.sim-topic-popover-head, .sim-topic-popover-head button, .sim-topic-list button small,
+.sim-topic-message, .sim-topic-create, .sim-limit-toolbar, .sim-auto-toggle,
+.sim-config-file-head small, .sim-actions > span, .sim-run-heading small,
+.sim-run-stats small, .sim-log-line, .sim-log-legacy, .sim-history-empty,
+.group-facts small, .group-inline-empty, .group-empty,
+.switch-option-copy small, .user-copy small, .producer-route-stat > div:first-child {
+  font-size: var(--fs-note); line-height: 1.4;
+}
+.protocol-pill { font-size: 11px; letter-spacing: 0; }
+.topic-leader-list .badge, .topic-detail-link, .topic-broker-id,
+.topic-broker-host, .topic-broker-count small, .sim-status,
+.sim-history-meta .sim-status, .sim-history-main b span, .sim-history-meta b,
+.sim-derived-tag, .sim-inline-action, .producer-result-empty,
+.producer-payload-summary strong, .producer-payload-summary span,
+.consumer-offset-switch button { font-size: var(--fs-note); }
+.sim-client-choice b, .sim-history-main b { font-size: var(--fs-field); }
+.sim-client-choice b { font-weight: 650; line-height: 1.35; }
+.sim-client-choice small { font-size: var(--fs-note); }
+.sim-client-choice > span:last-child { min-width: 0; }
+.sim-client-mark { font-size: 10px; }
+@media (max-width: 1750px) {
+  .sim-client-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+.sim-history-row .mono, .sim-history-row small { font-size: var(--fs-note); }
+:is([class~="text-[10px]"], [class~="text-[10.5px]"], [class~="text-[11px]"], [class~="text-[11.5px]"]) {
+  font-size: var(--fs-note) !important;
+}
+.overview-health-ring-center small, .overview-health-legend-row,
+.sim-history-main small, .sim-history-meta small { color: var(--ui-muted); }
+
+/* 技术内容保持框内滚动，但主要操作和筛选栏固定在框内可见位置。 */
+.producer-column, .consumer-column, .sim-config-scroll, .group-list-scroll,
+.group-detail-scroll, .loadtest-config-scroll { scrollbar-gutter: stable; overscroll-behavior: contain; }
+.sim-config-scroll { padding: 4px 6px 6px 4px; }
+.sim-topic-popover { position: relative; top: auto; right: auto; left: auto; margin-top: 5px; }
+.sim-topic-list { max-height: 204px; }
+.sim-topic-list button { min-height: 34px; padding-block: 6px; }
+.loadtest-config { display: flex; flex-direction: column; overflow: hidden; }
+.loadtest-config-scroll { min-height: 0; flex: 1; overflow-y: auto; padding-right: 4px; }
+.loadtest-action { flex: 0 0 auto; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--ui-border); }
+.loadtest-progress-fill { transition: width .2s ease; }
+.sim-config .sim-actions { border-top: 1px solid var(--ui-border); padding-top: 10px; }
+.producer-layout > .col-right { align-items: stretch; }
+
+.topic-picker { position: relative; min-width: 0; }
+.topic-picker-control { position: relative; }
+.topic-picker-control .field { padding-right: 42px; }
+.topic-picker-trigger { position: absolute; inset: 1px 1px 1px auto; display: grid; width: 36px; place-items: center; border: 0; border-left: 1px solid var(--ui-border); border-radius: 0 8px 8px 0; color: #597a9c; background: #f3f8fe; cursor: pointer; }
+.topic-picker-trigger:hover, .topic-picker-trigger[aria-expanded="true"] { color: #286db3; background: #e7f2fd; }
+.topic-picker-trigger svg { width: 16px; height: 16px; }
+.topic-picker-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+.topic-picker-list { position: absolute; z-index: 35; top: calc(100% + 5px); right: 0; left: 0; max-height: min(260px, 42vh); overflow-y: auto; border: 1px solid #bcd3ea; border-radius: 9px; background: #fff; box-shadow: 0 12px 28px rgba(33,75,116,.14); }
+.topic-picker-list button[role="option"] { display: block; width: 100%; min-height: 34px; overflow: hidden; padding: 7px 11px; border: 0; color: #365773; background: transparent; font-size: var(--fs-field); text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.topic-picker-list button[role="option"]:hover, .topic-picker-list button.is-active { color: #236eaf; background: #edf5fe; }
+.topic-picker-list button[role="option"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.topic-picker-message { padding: 9px 11px; color: var(--ui-muted); font-size: var(--fs-note); }
+.topic-picker-message button { margin-left: 8px; color: #286db3; font-weight: 700; }
+.message-extra-filters { border-top: 1px solid var(--ui-border); padding-top: 9px; }
+.message-extra-filters summary { display: flex; min-height: 28px; align-items: center; gap: 8px; color: #426381; font-size: var(--fs-field); font-weight: 650; cursor: pointer; }
+.message-extra-filters summary:hover { color: #286db3; }
+.message-extra-filters summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cluster-brokers-label { display: flex; align-items: center; gap: 6px; width: fit-content; cursor: pointer; list-style: none; }
+.cluster-brokers-label::-webkit-details-marker { display: none; }
+.cluster-brokers-label::after { width: 6px; height: 6px; margin-left: 3px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; content: ""; transform: rotate(45deg); transition: transform .15s; }
+.cluster-brokers[open] .cluster-brokers-label::after { transform: rotate(225deg); }
+.cluster-brokers-list { margin-top: 8px; max-height: 140px; overflow-y: auto; }
+.cluster-brokers-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cluster-row-card { min-height: 290px; }
+.cluster-card-details { margin-top: 12px; }
+.clusters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cluster-card-editor-slot { margin-top: 12px; scroll-margin-top: 20px; }
+.cluster-card-editor-slot .cluster-editor-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cluster-card-editor-slot .cluster-editor-fields > div:first-child { grid-column: 1; grid-row: 1; }
+.cluster-card-editor-slot .cluster-editor-fields > div:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+.cluster-card-editor-slot .cluster-editor-fields > div:nth-child(3) { grid-column: 2; grid-row: 1; }
+@media (max-width: 1150px) {
+  .clusters-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .cluster-card-editor-slot .cluster-editor-fields { grid-template-columns: minmax(0, 1fr); }
+  .cluster-card-editor-slot .cluster-editor-fields > div:nth-child(-n + 3) { grid-column: auto; grid-row: auto; }
+}
+
+/* 健康面板：图表撑满相邻面板，异常在固定抽屉中查看。 */
+.overview-health-panel { display: flex; flex-direction: column; }
+.overview-health-panel .overview-panel-title { font-size: 14px; }
+.overview-health-panel .overview-panel-head { flex: 0 0 auto; }
+.overview-health-actions { display: flex; align-items: center; gap: 7px; }
+.overview-issues-button { gap: 5px; min-height: 29px; padding-inline: 9px; white-space: nowrap; }
+.overview-issues-button:disabled { border-color: #d6e2ed; color: #6d8195; background: #f5f8fc; box-shadow: none; opacity: 1; cursor: default; }
+.overview-issues-button .mono { font-variant-numeric: tabular-nums; }
+.overview-health-grid { min-height: 0; flex: 1; align-items: stretch; }
+.overview-health-chart { display: flex; min-height: 206px; flex-direction: column; padding: 13px 15px; }
+.overview-health-chart-head h3 { font-size: 12px; }
+.overview-health-chart-head > span { font-size: 11px; }
+.overview-health-chart-body { min-height: 0; flex: 1; grid-template-columns: 114px minmax(0,1fr); align-content: center; gap: 10px; }
+.overview-health-ring { width: 112px; height: 112px; }
+.overview-health-ring-center strong { font-size: 16px; }
+.overview-health-ring-center small { font-size: 11px; }
+.overview-health-legend { gap: 9px; }
+.overview-health-legend-row, .overview-health-legend-row strong { font-size: 11px; }
+.overview-health-chart-foot { display: flex; min-height: 48px; align-items: center; margin-top: 8px; padding-top: 9px; border-top: 1px solid #dce7f1; }
+.overview-health-nodes { display: flex; width: 100%; max-height: 68px; flex-wrap: wrap; align-content: center; gap: 5px; overflow-y: auto; }
+.overview-health-node { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 2px 6px; border: 1px solid #cfe4dc; border-radius: 7px; color: #247c68; background: #f3fbf8; font-size: 11px; white-space: nowrap; }
+.overview-health-node.is-offline { border-color: #efd4d9; color: #b24758; background: #fff6f7; }
+.overview-health-node i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #21a88b; }
+.overview-health-node.is-offline i { background: #df6675; }
+.overview-health-node b { font-size: inherit; }
+.overview-health-partitions { display: grid; width: 100%; grid-template-columns: repeat(3,minmax(0,1fr)); }
+.overview-health-partitions > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding-left: 9px; border-left: 1px solid #dce7f1; }
+.overview-health-partitions > div:first-child { padding-left: 0; border-left: 0; }
+.overview-health-partitions span { color: #6f8499; font-size: 11px; }
+.overview-health-partitions strong { color: #2f4e6e; font-size: 13px; font-variant-numeric: tabular-nums; }
+.overview-issue-overlay { position: fixed; z-index: 70; inset: 0; display: flex; justify-content: flex-end; }
+.overview-issue-scrim { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(24,44,68,.4); cursor: default; }
+.overview-issue-drawer { position: relative; display: flex; width: min(500px,100vw); height: 100dvh; flex-direction: column; border-left: 1px solid #cbd9e8; background: linear-gradient(160deg,#fff,#f2f7fd); box-shadow: -14px 0 40px rgba(20,46,78,.18); }
+.overview-issue-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 22px 24px 16px; border-bottom: 1px solid var(--ui-border); }
+.overview-issue-drawer-head p { margin: 0 0 5px; color: #71879d; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.overview-issue-drawer-head h2 { margin: 0; color: var(--ui-ink); font-size: 18px; line-height: 1.3; }
+.overview-issue-drawer-head h2 span { margin-left: 5px; color: #af5260; font-size: 13px; }
+.overview-issue-close { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ui-border); border-radius: 8px; color: #55718c; background: #f6faff; font-size: 22px; line-height: 1; cursor: pointer; }
+.overview-issue-close:hover { color: #276cb0; background: #e9f3fd; }
+.overview-issue-close:focus-visible, .overview-issues-button:focus-visible { outline: 2px solid #4c8fe8; outline-offset: 2px; }
+.overview-issue-drawer-body { min-height: 0; flex: 1; overflow-y: auto; padding: 18px 24px 24px; }
+.overview-issue-section + .overview-issue-section { margin-top: 24px; }
+.overview-issue-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; color: #365371; font-size: 13px; font-weight: 700; }
+.overview-issue-section h3 span { color: #8397aa; font-size: 12px; }
+.overview-issue-drawer .overview-issue-list { max-height: none; overflow: visible; }
+.overview-issue-drawer .overview-issue-item { flex-wrap: nowrap; padding: 11px 12px; border-color: var(--ui-border); background: #fbfdff; box-shadow: var(--ui-control-elevation); }
+.overview-issue-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.overview-issue-copy strong, .overview-issue-copy .overview-issue-name { min-width: 0; color: #2e5376; font-size: 13px; font-weight: 700; }
+.overview-issue-copy .overview-issue-name { flex: none; text-decoration: none; }
+.overview-issue-copy .overview-issue-name:hover { color: #2675bd; text-decoration: underline; }
+.overview-issue-copy small { overflow: hidden; color: #6a8199; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.overview-issue-tags { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.overview-issue-drawer .overview-issue-message { display: block; color: #8b5d22; font-size: 12px; overflow-wrap: anywhere; }
+.overview-issue-drawer-foot { padding: 12px 24px; border-top: 1px solid var(--ui-border); color: #71879d; font-size: 12px; }
+@media (max-width: 620px) {
+  .overview-health-grid { flex: none; }
+  .overview-health-chart { min-height: 200px; }
+  .overview-issue-drawer-head, .overview-issue-drawer-body, .overview-issue-drawer-foot { padding-inline: 16px; }
+  .overview-issue-drawer .overview-issue-item { flex-wrap: wrap; }
+  .overview-issue-tags { justify-content: flex-start; }
+}
+
+@media (min-width: 1400px) {
+  .producer-layout { grid-template-columns: minmax(270px,.95fr) minmax(390px,1.5fr) minmax(270px,1fr); }
+  .producer-layout > .col-right { display: flex; grid-column: auto; }
+}
+
+.skip-link { position: fixed; z-index: 100; top: 8px; left: 8px; padding: 8px 12px; border-radius: 8px; color: #fff; background: #276cb0; transform: translateY(-160%); }
+.skip-link:focus { transform: translateY(0); }
+.shell-nav-toggle, .sidebar-mobile-scrim { display: none; }
+
+/* 窄屏保持完整的文字导航；操作区优先于诊断区。 */
+@media (max-width: 1050px) {
+  .app-sidebar { width: 196px; padding: 16px 10px 10px; }
+  .brand { justify-content: flex-start; padding: 3px 6px 19px; }
+  .brand > span:last-child, .sidebar-workspace, .nav-section-label,
+  .nav-cluster-label, .shell-nav-link > span:not(.shell-nav-icon),
+  .sidebar-utility span, .user-copy, .user-card button, .probe-button { display: revert; }
+  .shell-nav-link { justify-content: flex-start; padding: 0 10px; }
+  .shell-nav-icon { width: 18px; }
+  .sidebar-utility { justify-content: flex-start; padding: 7px 10px; font-size: 13px; }
+  .user-card { justify-content: flex-start; }
+  .app-main { margin-left: 196px; }
+}
+@media (max-width: 700px) {
+  .app-topbar { display: grid; grid-template-columns: minmax(0,1fr); justify-items: stretch; gap: 4px; min-height: 82px; padding: 7px 10px; }
+  .topbar-heading { min-width: 0; }
+  .topbar-right { min-width: 0; justify-content: flex-start; flex-wrap: wrap; gap: 5px; margin-left: 0; }
+  .topbar-right .mode-segment-option { padding-inline: 5px; font-size: 11px; }
+  .topbar-right .connection-pill { font-size: 11px; }
+  .app-sidebar { width: 58px; padding-inline: 5px; }
+  .app-sidebar .brand > .brand-lockup, .sidebar-workspace, .nav-section-label,
+  .shell-nav-link > span:not(.shell-nav-icon), .sidebar-utility span,
+  .user-copy, .user-card button { display: none; }
+  .app-sidebar .brand { justify-content: center; padding-inline: 0; }
+  .shell-nav-link { justify-content: center; padding: 0; }
+  .sidebar-utility { justify-content: center; }
+  .app-main { margin-left: 58px; }
+  .shell-nav-toggle { display: grid; width: 38px; min-height: 38px; flex: 0 0 auto; place-items: center; margin: -9px auto 12px; border: 1px solid var(--ui-border); border-radius: 9px; color: #426889; background: var(--ui-surface); cursor: pointer; }
+  .shell-nav-toggle svg { width: 18px; height: 18px; }
+  .sidebar-mobile-scrim { position: fixed; inset: 0; z-index: 29; display: block; width: 100%; border: 0; background: rgba(26,43,64,.35); }
+  .app-sidebar.is-expanded { width: min(244px, 85vw); padding: 16px 10px 10px; }
+  .app-sidebar.is-expanded .brand { justify-content: flex-start; padding-inline: 5px; }
+  .app-sidebar.is-expanded .brand > .brand-lockup, .app-sidebar.is-expanded .sidebar-workspace,
+  .app-sidebar.is-expanded .nav-section-label, .app-sidebar.is-expanded .user-copy { display: block; }
+  .app-sidebar.is-expanded .shell-nav-link > span:not(.shell-nav-icon),
+  .app-sidebar.is-expanded .sidebar-utility span { display: inline; }
+  .app-sidebar.is-expanded .user-card button { display: grid; }
+  .app-sidebar.is-expanded .shell-nav-link, .app-sidebar.is-expanded .sidebar-utility { justify-content: flex-start; padding-inline: 10px; }
+  .app-sidebar.is-expanded .shell-nav-toggle { margin: -8px 0 10px auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn, .badge, .pulsing, .fade-up, .loadtest-progress-fill { animation: none !important; transition: none !important; }
+}

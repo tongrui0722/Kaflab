@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KafkaTraceEvent, Session, WsMessage } from "../types";
 import { authHeaders } from "../auth";
 
-const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
-const WS = (import.meta.env.VITE_WS_BASE as string) || "ws://localhost:8000";
+const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
+const WS = (import.meta.env.VITE_WS_BASE as string) || `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 
 export async function apiGet<T>(path: string): Promise<T> {
   const r = await fetch(`${API}${path}`);
@@ -39,6 +39,7 @@ export interface ProduceForm extends SecurityForm {
   key: string; value: string; acks: string; retries: number;
   requestTimeoutMs: number; deliveryTimeoutMs: number;
   messages?: { key: string; value: string; keyHex?: string; valueHex?: string }[];
+  messageCount?: number;
   keyHex?: string; valueHex?: string;
   headers?: { k: string; v: string }[];
 }
@@ -103,6 +104,16 @@ export function useProducerSession() {
 
   useEffect(() => () => wsRef.current?.close(), []);
 
+  const reset = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    setSession(null);
+    setEvents([]);
+    setRunning(false);
+    setSendError(null);
+    setWsDown(false);
+  }, []);
+
   const send = useCallback(async (form: ProduceForm) => {
     setRunning(true);
     setEvents([]);
@@ -125,7 +136,7 @@ export function useProducerSession() {
     }
   }, [connectWs]);
 
-  return { session, events, running, sendError, wsDown, send };
+  return { session, events, running, sendError, wsDown, send, reset };
 }
 
 export function useClusterStatus(form: ProduceForm, topic: string) {

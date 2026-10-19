@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const API = (import.meta.env.VITE_API_BASE as string) || "http://localhost:8000";
+const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
 const LIVE_CAP = 1000;
 const SUMMARY_LEN = 120;
 
@@ -162,61 +162,62 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
   }
 
   return (
-    <div className="space-y-3">
+    <div className="topic-messages space-y-3">
       {/* 查询条件 */}
-      <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--panel-3)] p-3.5 sm:p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[12px] font-semibold text-slate-700">查询条件</div>
-        <div className="text-[10px] text-[var(--text-faint)]">选择读取位置和过滤条件</div>
+      <div className="topic-message-query">
+      <div className="topic-section-heading mb-3">
+        <h2>查询条件</h2>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div><label className={labelCls}>Partition</label>
-          <select className={inputCls} value={partition} onChange={(e) => setPartition(e.target.value)}>
-            <option value="all">All</option>
+        <div><label className={labelCls} htmlFor="message-partition">Partition</label>
+          <select id="message-partition" className={inputCls} value={partition} onChange={(e) => setPartition(e.target.value)}>
+            <option value="all">全部分区</option>
             {partitions.map((p) => <option key={p} value={String(p)}>{p}</option>)}
           </select></div>
-        <div><label className={labelCls}>定位方式</label>
-          <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
+        <div><label className={labelCls} htmlFor="message-mode">定位方式</label>
+          <select id="message-mode" className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
             <option value="latest">最新 Latest</option>
             <option value="earliest">最早 Earliest</option>
             <option value="offset">指定 Offset</option>
             <option value="timestamp">时间范围</option>
           </select></div>
-        <div><label className={labelCls}>条数 Limit</label>
-          <select className={inputCls} value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+        <div><label className={labelCls} htmlFor="message-limit">读取条数</label>
+          <select id="message-limit" className={inputCls} value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
             {[10, 50, 100, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
           </select></div>
         {mode === "offset" ? (
-          <div><label className={labelCls}>Offset</label>
-            <input className={inputCls} value={offset} placeholder="如 10000"
+          <div><label className={labelCls} htmlFor="message-offset">Offset</label>
+            <input id="message-offset" className={inputCls} value={offset} placeholder="例如 10000"
               onChange={(e) => setOffset(e.target.value)} /></div>
         ) : mode === "timestamp" ? (
-          <div><label className={labelCls}>开始时间</label>
-            <input type="datetime-local" className={inputCls} value={start}
+          <div><label className={labelCls} htmlFor="message-start">开始时间</label>
+            <input id="message-start" type="datetime-local" className={inputCls} value={start}
               onChange={(e) => setStart(e.target.value)} /></div>
         ) : <div className="hidden xl:block" />}
       </div>
       {mode === "timestamp" && (
         <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-4">
-          <div><label className={labelCls}>结束时间（可选）</label>
-            <input type="datetime-local" className={inputCls} value={end}
+          <div><label className={labelCls} htmlFor="message-end">结束时间（可选）</label>
+            <input id="message-end" type="datetime-local" className={inputCls} value={end}
               onChange={(e) => setEnd(e.target.value)} /></div>
         </div>
       )}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div><label className={labelCls}>Key 包含</label>
-          <input className={inputCls} value={keyQ} placeholder="可选"
-            onChange={(e) => setKeyQ(e.target.value)} /></div>
-        <div><label className={labelCls}>Value 包含</label>
-          <input className={inputCls} value={valQ} placeholder="可选"
-            onChange={(e) => setValQ(e.target.value)} /></div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] pt-3">
-        <button onClick={() => query(false)} disabled={busy || live !== "off"} className="btn btn-info btn-sm">
+      <details className="message-extra-filters mt-3">
+        <summary>内容筛选{(keyQ || valQ) && <span className="badge run">已设置</span>}</summary>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div><label className={labelCls} htmlFor="message-key-filter">Key 包含</label>
+            <input id="message-key-filter" className={inputCls} value={keyQ} placeholder="输入 Key 片段"
+              onChange={(e) => setKeyQ(e.target.value)} /></div>
+          <div><label className={labelCls} htmlFor="message-value-filter">Value 包含</label>
+            <input id="message-value-filter" className={inputCls} value={valQ} placeholder="输入 Value 片段"
+              onChange={(e) => setValQ(e.target.value)} /></div>
+        </div>
+      </details>
+      <div className="topic-message-actions">
+        <button onClick={() => query(false)} disabled={busy || live !== "off"} className="btn btn-primary btn-sm">
           {busy ? "查询中…" : "查询"}
         </button>
-        <button onClick={() => query(false)} disabled={busy || live !== "off"} className="btn btn-ghost btn-sm">刷新</button>
-        <button onClick={() => { setMsgs([]); setNextOffsets(null); setSel(null); setEmptyNote(null); setErr(null); }} className="btn btn-ghost btn-sm">清空</button>
+        <button onClick={() => { stopLive(); setMsgs([]); setNextOffsets(null); setSel(null); setEmptyNote(null); setErr(null); }} className="btn btn-ghost btn-sm">清空</button>
         <span className="mx-1 h-4 w-px bg-[var(--border-soft)]" />
         {live === "off" ? (
           <button onClick={startLive} className="btn btn-ghost btn-sm">▶ 实时</button>
@@ -229,9 +230,6 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
             <button onClick={stopLive} className="btn btn-ghost btn-sm">停止</button>
           </>
         )}
-        <span className="mono ml-auto text-[10.5px] text-slate-600">
-          {msgs.length} loaded{truncated ? " · 已达扫描上限" : ""}
-        </span>
       </div>
       </div>
       {err && <div className="alert err mt-2">{err}</div>}
@@ -243,8 +241,8 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
           <div className="py-8 text-center text-[12px] text-slate-500">{emptyNote ?? "没有消息"}</div>
         ) : (
           <>
-            <div className="scroll-box max-h-[min(58vh,640px)] overflow-y-auto overscroll-contain rounded-lg border border-[var(--border-soft)]">
-              <table className="tbl mono">
+            <div className="tbl-wrap scroll-box topic-message-table-wrap">
+              <table className="tbl mono topic-message-table">
                 <thead className="sticky top-0 bg-[var(--panel-2)]"><tr>
                   <th className="text-center">分区</th>
                   <th>Offset</th>
@@ -271,10 +269,10 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
               </table>
             </div>
             <div className="mt-1.5 flex items-center gap-2">
-              <span className="mono text-[10.5px] text-slate-600">{msgs.length}{hasMore ? " / 更多" : ""} · 已加载 {msgs.length} 条</span>
+              <span className="mono text-[10.5px] text-slate-600">已加载 {msgs.length} 条{truncated ? " · 已达扫描上限" : ""}</span>
               {hasMore && (
                 <button onClick={() => query(true)} disabled={moreBusy} className="btn btn-ghost btn-sm ml-auto">
-                  {moreBusy ? "加载中…" : "Load More"}
+                  {moreBusy ? "加载中…" : "加载更多"}
                 </button>
               )}
               {!hasMore && msgs.length > 0 && (
@@ -292,7 +290,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
       {selMsg && (
         <div className="fixed inset-0 z-40" onClick={() => setSel(null)}>
           <div className="absolute inset-0 bg-black/50" />
-          <div className="absolute inset-y-0 right-0 flex w-full max-w-[520px] flex-col border-l border-[var(--border-soft)] bg-[var(--panel)] p-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="消息详情" className="topic-message-drawer absolute inset-y-0 right-0 flex w-full max-w-[520px] flex-col border-l border-[var(--border-soft)] p-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-bold text-slate-800">消息详情</span>
               <span className="mono text-[11px] text-slate-500">分区 {selMsg.partition} · Offset {selMsg.offset}</span>

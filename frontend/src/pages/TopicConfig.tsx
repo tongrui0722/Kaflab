@@ -84,7 +84,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
     setErr(null);
     try {
       const r = await fetch(
-        `${(import.meta.env.VITE_API_BASE as string) || "http://localhost:8000"}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
+        `${(import.meta.env.VITE_API_BASE as string) || window.location.origin}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
         { headers: authHeaders() });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.detail || `读取失败 (${r.status})`);
@@ -133,7 +133,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
     setSaveErr(null);
     try {
       const r = await fetch(
-        `${(import.meta.env.VITE_API_BASE as string) || "http://localhost:8000"}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
+        `${(import.meta.env.VITE_API_BASE as string) || window.location.origin}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -142,8 +142,8 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.detail || `保存失败 (${r.status})`);
       setConfirm(false);
-      setSaveOk(`已保存 ${changed.length} 项，实际生效值已重新读取`);
       await load();
+      setSaveOk(`已保存 ${changed.length} 项，实际生效值已重新读取`);
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -166,19 +166,20 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
   return (
     <div>
       {readonly && <div className="alert info">只读模式：仅可查看配置，用【全部功能】模式登录后可修改。</div>}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <div className="seg !w-auto">
+      <div className="topic-config-toolbar">
+        <div className="seg">
           {(["common", "all"] as const).map((s) => (
             <button key={s} onClick={() => setScope(s)} className={scope === s ? "on" : ""}>
               {s === "common" ? "常用配置" : "全部配置"}
             </button>
           ))}
         </div>
-        <select value={cat} onChange={(e) => setCat(e.target.value)} className="field !h-[34px] !w-auto">
+        <select value={cat} onChange={(e) => setCat(e.target.value)} className="field topic-config-category">
           {cats.map((c) => <option key={c} value={c}>{c === "all" ? "全部分类" : c}</option>)}
         </select>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索配置名或说明…"
+        <input aria-label="搜索 Topic 配置" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索配置名或说明…"
           className="field mono min-w-[160px] flex-1 !text-[12px]" />
+        <span className="badge mute">{rows.length} / {data.configs.length}</span>
         <button onClick={() => void load()} className="btn btn-ghost btn-sm">重新读取</button>
       </div>
 
@@ -190,7 +191,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
           {data.configs.length === 0 ? "Kafka 未返回任何配置（可能无权限或版本不支持）。" : "没有匹配的配置，换个关键词试试。"}
         </div>
       ) : (
-        <div className="tbl-wrap mt-3 max-h-[520px] overflow-auto">
+        <div className="tbl-wrap topic-config-table-wrap">
           <table className="tbl min-w-[720px]">
             <thead className="sticky top-0 z-10 bg-[var(--panel-2)]">
               <tr>
@@ -224,7 +225,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
                     <td className="!text-right">
                       {!editable ? <span className="text-[11px] text-slate-500">只读</span>
                       : typeOf(c) === "BOOLEAN" ? (
-                        <select value={d === undefined ? (c.value ?? "") : (d ?? "")} disabled={readonly} title={readonly ? "只读巡检模式下不能修改配置" : undefined}
+                        <select value={d === undefined ? (c.value ?? "") : (d ?? "")} disabled={readonly} title={readonly ? "只读模式下不能修改配置" : undefined}
                           onChange={(e) => setDraft((p) => ({ ...p, [c.name]: e.target.value }))}
                           className="field !h-[30px] !w-[130px] !text-[12px]">
                           <option value="">恢复默认</option>
@@ -232,7 +233,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
                           <option value="false">false</option>
                         </select>
                       ) : (
-                        <input value={d === undefined ? (c.value ?? "") : (d ?? "")} disabled={readonly} title={readonly ? "只读巡检模式下不能修改配置" : undefined}
+                        <input value={d === undefined ? (c.value ?? "") : (d ?? "")} disabled={readonly} title={readonly ? "只读模式下不能修改配置" : undefined}
                           onChange={(e) => setDraft((p) => ({ ...p, [c.name]: e.target.value }))}
                           placeholder="留空=恢复默认"
                           className="field mono !h-[30px] !w-[170px] !text-[12px]" />
@@ -247,21 +248,16 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
       )}
 
       {changed.length > 0 && !confirm && (
-        <div className="sticky bottom-0 mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+        <div className="topic-config-changes">
           <span className="text-[12px] font-semibold text-amber-800">已修改 {changed.length} 项</span>
-          <span className="text-[11px] text-slate-500">保存前请确认变更，提交后将重新读取实际生效值。</span>
           <span className="ml-auto flex gap-2">
             <button onClick={() => setDraft({})} className="btn btn-ghost btn-sm">放弃修改</button>
             <button onClick={() => setConfirm(true)} disabled={readonly} className="btn btn-primary btn-sm">保存</button>
           </span>
         </div>
       )}
-      <div className="mt-2 text-[11px] leading-5 text-slate-500">
-        恢复默认不会写入默认值，而是删除该配置的 Topic 覆盖、继承集群默认值。保存失败时已编辑内容会保留，可重试。
-      </div>
-
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !saving && setConfirm(false)}>
+        <div role="dialog" aria-modal="true" aria-label="确认 Topic 配置变更" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !saving && setConfirm(false)}>
           <div className="card w-full max-w-lg p-4" onClick={(e) => e.stopPropagation()}>
             <div className="text-[13px] font-bold text-slate-700">确认保存以下 {changed.length} 项变更？</div>
             <div className="mt-2 max-h-[300px] space-y-1.5 overflow-y-auto">
@@ -279,7 +275,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
             {saveErr && <div className="alert err mt-2">保存失败：{saveErr}</div>}
             <div className="mt-3 flex justify-end gap-2">
               <button onClick={() => setConfirm(false)} disabled={saving} className="btn btn-ghost btn-sm">取消</button>
-              <button onClick={() => void save()} disabled={saving || readonly} title={readonly ? "只读巡检模式下禁止保存配置" : undefined} className="btn btn-primary btn-sm">
+              <button onClick={() => void save()} disabled={saving || readonly} title={readonly ? "只读模式下禁止保存配置" : undefined} className="btn btn-primary btn-sm">
                 {saving ? "保存中…" : "确认保存"}
               </button>
             </div>

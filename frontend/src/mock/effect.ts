@@ -8,7 +8,7 @@ export function stepsFromEvents(events: KafkaTraceEvent[]): TraceStep[] {
   }
   const pick = (i: number) => {
     const arr = byIdx.get(i) ?? [];
-    return arr.find((x) => x.direction === "response") ?? arr[arr.length - 1];
+      return [...arr].reverse().find((x) => x.direction === "response") ?? arr[arr.length - 1];
   };
   const titles: Record<number, [string, string]> = {
     1: ["TCP Connect", ""],

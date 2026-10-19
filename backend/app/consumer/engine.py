@@ -1,15 +1,13 @@
 from __future__ import annotations
-import asyncio
 import hashlib
 import struct
-import time
 import uuid
 
 from ..models import ConsumerFetchRequest, GroupDescribeRequest, SecurityConfig, error_name
 from ..network.client import KafkaClient
 from ..network.tcp import parse_hostport
 from ..protocol import codec
-from ..producer.shared import KafkaFailure, _fail, _metadata_dict, _pick
+from ..producer.shared import KafkaFailure, _fail, _metadata_dict
 from ..session.manager import SessionManager
 from ..trace.manager import TraceManager, now_ms
 
@@ -313,6 +311,7 @@ class ConsumerEngine:
 
             # 各 broker ListGroups 并集
             seen: dict[str, str] = {}
+            list_groups_errors: list[str] = []
             for bh, bp, bid in brokers:
                 try:
                     bc = await _conn(nc(bh, bp, bid), f"listgroups-{bid}")
@@ -321,7 +320,8 @@ class ConsumerEngine:
                                              decode=codec.decode_list_groups_v1)
                     for g in lg.get("groups", []):
                         seen.setdefault(g["groupId"], g.get("protocolType", ""))
-                except Exception:
+                except Exception as e:
+                    list_groups_errors.append(f"{bid if bid is not None else bh}:{e}")
                     continue
 
             # log-end：按 leader 建连接逐分区查（连接复用）
@@ -457,6 +457,7 @@ class ConsumerEngine:
                 except Exception as e:  # noqa: BLE001
                     out.append({"groupId": gid, "error": str(e)[:200]})
             return {"traceId": trace_id, "count": len(out), "groups": out,
+                    "listGroupsErrors": list_groups_errors,
                     "rateSamples": {"produce": produce_rate_sample,
                                     "consume": consume_rate_samples}}
         finally:
@@ -622,227 +623,6 @@ class ConsumerEngine:
                     "totalLag": total, "partitions": len(rows),
                     "uncommitted": sum(1 for r in rows if r["committed"] is None),
                     "rows": rows}
-        finally:
-            for c in clients:
-                c.close()
-
-    async def rebalance_demo(self, req: GroupDescribeRequest, topics: list[str]) -> dict:
-        """Two-member Join sequence that forces a real rebalance.
-
-        M1 join (gen g1) → M2 join (new generation g2) → M1 heartbeat on
-        stale g1 (expect REBALANCE_IN_PROGRESS) → M1 rejoin (gen g3) →
-        Sync both → Heartbeat both → Leave both.
-        Generation bump g1 < g2 <= g3 proves the rebalance happened.
-        """
-        import asyncio as _aio
-        trace_id = f"tr-{uuid.uuid4().hex[:8]}"
-        sec = _secf(req)
-        host, port = parse_hostport(req.bootstrap)
-        clients: list[KafkaClient] = []
-        steps: list[dict] = []
-
-        def nc(h, p, bid=None):
-            c = KafkaClient(self.traces, f"sess-rebal-{req.groupId}", trace_id,
-                            req.clientId, req.requestTimeoutMs, h, p, sec, bid)
-            clients.append(c)
-            return c
-
-        async def _join(cc, mid, tag, session_ms=30000, rebal_ms=10000):
-            cur = mid
-            for attempt in range(4):
-                jg, _, _ = await cc.call(
-                    11, "JoinGroup", 1,
-                    codec.encode_join_group_v1(req.groupId, cur, topics or ["test-topic"],
-                                               session_ms, rebal_ms),
-                    4, "joingroup",
-                    extra_req={"groupId": req.groupId, "tag": tag,
-                               "attempt": attempt + 1},
-                    decode=codec.decode_join_group_v1)
-                steps.append({"step": f"join.{tag}", "attempt": attempt + 1,
-                              "errorCode": jg.get("errorCode"),
-                              "errorName": error_name(jg.get("errorCode") or 0)
-                              if jg.get("errorCode") else "NONE",
-                              "generation": jg.get("generationId"),
-                              "memberId": jg.get("memberId"),
-                              "leader": jg.get("leaderId")})
-                if jg.get("errorCode") == 27:  # REBALANCE_IN_PROGRESS → retry
-                    await _aio.sleep(1.0)
-                    continue
-                if jg.get("errorCode") == 25 and cur:  # UNKNOWN_MEMBER (fenced) → rejoin as new
-                    steps.append({"step": f"fenced.{tag}",
-                                  "note": "成员被 fencing，改用空 memberId 重新加入（真实消费者同逻辑）"})
-                    cur = ""
-                    continue
-                if jg.get("errorCode") not in (0, None):
-                    raise _fail(f"JoinGroup({tag}): {error_name(jg['errorCode'])}",
-                                error_name(jg["errorCode"]), 4, jg["errorCode"])
-                return jg
-            raise _fail("JoinGroup kept rebalancing", "REBALANCE_IN_PROGRESS", 4, 27)
-
-        try:
-            bs = nc(host, port)
-            await bs.connect(1, label="bootstrap")
-            fc, _, _ = await bs.call(
-                10, "FindCoordinator", 0,
-                codec.encode_find_coordinator_v0(req.groupId),
-                2, "findcoordinator", extra_req={"key": req.groupId},
-                decode=codec.decode_find_coordinator_v0)
-            if fc.get("errorCode") not in (0, None):
-                raise _fail("FindCoordinator failed", error_name(fc["errorCode"]), 2, fc["errorCode"])
-            cc = nc(fc.get("host") or host, fc.get("port") or port, fc.get("nodeId"))
-            try:
-                await cc.connect(3, label="coordinator")
-            except OSError:
-                cc.host, cc.port = host, port
-                await cc.connect(3, label="coordinator-via-bootstrap")
-
-            j1 = await _join(cc, "", "m1-first")
-            g1, m1 = j1["generationId"], j1["memberId"]
-            # m2 用较短 rebalance 超时快速完成 g2（m1 会被 fencing，后面演示重新加入）
-            j2 = await _join(cc, "", "m2-join", rebal_ms=8000)
-            g2, m2 = j2["generationId"], j2["memberId"]
-
-            hb1, _, _ = await cc.call(
-                12, "Heartbeat", 1,
-                codec.encode_heartbeat_v1(req.groupId, g1, m1),
-                5, "heartbeat",
-                extra_req={"tag": "m1-stale-gen", "generation": g1},
-                decode=codec.decode_heartbeat_v1)
-            steps.append({"step": "heartbeat.m1-stale", "generation": g1,
-                          "errorCode": hb1.get("errorCode"),
-                          "errorName": error_name(hb1.get("errorCode") or 0)
-                          if hb1.get("errorCode") else "NONE",
-                          "note": "旧 generation 心跳被拒绝(27)=需要重入组" if hb1.get("errorCode") == 27
-                          else "coordinator 仍接受（时序原因），fencing 由下一步重入组证明"})
-
-            j1b = await _join(cc, m1, "m1-rejoin")
-            g3 = j1b["generationId"]
-            m1 = j1b.get("memberId") or m1  # fencing 后可能是新 memberId
-            # whoever leads the latest generation assigns split partitions
-            # (real partition counts from Metadata, not hardcoded)
-            assign_map: dict = {}
-            try:
-                md, _, _ = await bs.call(
-                    3, "Metadata", 0,
-                    codec.encode_metadata_v0(topics or ["test-topic"]),
-                    3, "metadata",
-                    extra_req={"topics": topics, "reason": "rebalance-assign"},
-                    decode=codec.decode_metadata_v0)
-                for t in _metadata_dict(md)["topics"]:
-                    assign_map[t["topic"]] = [p["partition"] for p in t["partitions"]]
-            except Exception:
-                pass
-            lead = j1b if (j1b.get("leaderId") == j1b.get("memberId")) else j2
-            lg, lm = (lead.get("generationId"), lead.get("memberId"))
-            other = m2 if lm == m1 else m1
-            lm_topics, ot_topics = [], []
-            for t in (topics or ["test-topic"]):
-                ps = assign_map.get(t) or [0]
-                half = max(len(ps) // 2, 1)
-                lm_topics.append((t, ps[:half]))
-                ot_topics.append((t, ps[half:] or ps[:1]))
-            assigns = [(lm, lm_topics), (other, ot_topics)]
-            sgl, _, _ = await cc.call(
-                14, "SyncGroup", 1,
-                codec.encode_sync_group_v1(req.groupId, lg, lm, assigns),
-                6, "syncgroup", extra_req={"tag": "leader-sync", "generation": lg},
-                decode=codec.decode_sync_group_v1)
-            steps.append({"step": "sync.leader", "generation": lg,
-                          "errorCode": sgl.get("errorCode"),
-                          "assignment": {m: a for m, a in assigns}})
-            for tag, mm, gg in (("m1", m1, g3), ("m2", m2, g3 if g3 else g2)):
-                hb, _, _ = await cc.call(
-                    12, "Heartbeat", 1,
-                    codec.encode_heartbeat_v1(req.groupId, gg, mm),
-                    6, "heartbeat", extra_req={"tag": tag, "generation": gg},
-                    decode=codec.decode_heartbeat_v1)
-                steps.append({"step": f"heartbeat.{tag}", "generation": gg,
-                              "errorCode": hb.get("errorCode"),
-                              "errorName": error_name(hb.get("errorCode") or 0)
-                              if hb.get("errorCode") else "NONE"})
-            for mm in (m1, m2):
-                try:
-                    await cc.call(13, "LeaveGroup", 1,
-                                  codec.encode_leave_group_v1(req.groupId, mm),
-                                  7, "leavegroup",
-                                  decode=codec.decode_leave_group_v1)
-                except Exception:
-                    pass
-            steps.append({"step": "leave.both", "status": "done"})
-            bumped = (g2 is not None and g1 is not None and g2 > g1)
-            return {"traceId": trace_id, "groupId": req.groupId,
-                    "generations": {"m1First": g1, "m2Join": g2, "m1Rejoin": g3},
-                    "rebalanced": bumped,
-                    "note": "g2>g1 且 m1 用旧 generation 心跳返回 27，即发生 Rebalance" if bumped
-                    else "未观察到 generation 递增（组可能为空或 coordinator 行为不同）",
-                    "steps": steps}
-        finally:
-            for c in clients:
-                c.close()
-
-    async def join_sync_demo(self, req: GroupDescribeRequest, topics: list[str]) -> dict:
-        """JoinGroup→SyncGroup→Heartbeat→LeaveGroup demo (real group join)."""
-        from ..models import KafkaTraceEvent  # noqa: F401
-        trace_id = f"tr-{uuid.uuid4().hex[:8]}"
-        sec = _secf(req)
-        host, port = parse_hostport(req.bootstrap)
-        clients: list[KafkaClient] = []
-
-        def nc(h, p, bid=None):
-            c = KafkaClient(self.traces, f"sess-join-{req.groupId}", trace_id,
-                            req.clientId, req.requestTimeoutMs, h, p, sec, bid)
-            clients.append(c)
-            return c
-
-        try:
-            bs = nc(host, port)
-            await bs.connect(1, label="bootstrap")
-            fc, _, _ = await bs.call(
-                10, "FindCoordinator", 0,
-                codec.encode_find_coordinator_v0(req.groupId),
-                2, "findcoordinator", extra_req={"key": req.groupId},
-                decode=codec.decode_find_coordinator_v0)
-            if fc.get("errorCode") not in (0, None):
-                raise _fail("FindCoordinator failed", error_name(fc["errorCode"]), 2, fc["errorCode"])
-            cc = nc(fc.get("host") or host, fc.get("port") or port, fc.get("nodeId"))
-            try:
-                await cc.connect(3, label="coordinator")
-            except OSError:
-                cc.host, cc.port = host, port
-                await cc.connect(3, label="coordinator-via-bootstrap")
-            jg, _, _ = await cc.call(
-                11, "JoinGroup", 1,
-                codec.encode_join_group_v1(req.groupId, "", topics or ["test-topic"]),
-                4, "joingroup", extra_req={"groupId": req.groupId, "topics": topics},
-                decode=codec.decode_join_group_v1)
-            if jg.get("errorCode") not in (0, None):
-                raise _fail(f"JoinGroup: {error_name(jg['errorCode'])}",
-                            error_name(jg["errorCode"]), 4, jg["errorCode"])
-            gen, mid = jg["generationId"], jg["memberId"]
-            is_leader = (jg.get("leaderId") == mid) or not jg.get("members")
-            assigns = [(m["memberId"], [(t, [0]) for t in (topics or ["test-topic"])])
-                       for m in (jg.get("members") or [{"memberId": mid}])] if is_leader else []
-            sg, _, _ = await cc.call(
-                14, "SyncGroup", 1,
-                codec.encode_sync_group_v1(req.groupId, gen, mid, assigns),
-                5, "syncgroup", extra_req={"generation": gen, "isLeader": is_leader},
-                decode=codec.decode_sync_group_v1)
-            hb, _, _ = await cc.call(
-                12, "Heartbeat", 1,
-                codec.encode_heartbeat_v1(req.groupId, gen, mid),
-                6, "heartbeat", extra_req={"generation": gen},
-                decode=codec.decode_heartbeat_v1)
-            try:
-                await cc.call(13, "LeaveGroup", 1,
-                              codec.encode_leave_group_v1(req.groupId, mid),
-                              7, "leavegroup", decode=codec.decode_leave_group_v1)
-            except Exception:
-                pass
-            return {"traceId": trace_id, "generation": gen, "memberId": mid,
-                    "protocol": jg.get("protocol"), "isLeader": is_leader,
-                    "members": jg.get("members", []),
-                    "syncError": sg.get("errorCode"),
-                    "heartbeatError": hb.get("errorCode")}
         finally:
             for c in clients:
                 c.close()

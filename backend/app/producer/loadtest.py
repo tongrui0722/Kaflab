@@ -42,44 +42,63 @@ def _rand_value(n: int) -> bytes:
 async def _setup_leader(body: dict, sec: SecurityConfig, topic: str):
     """建 bootstrap 连接 → Metadata → 选分区/Leader → 连 Leader，返回 (clients, leader_client, partition)。"""
     clients: list[KafkaClient] = []
-    host, port = parse_hostport(body.get("bootstrap", "") or "localhost:19092")
+    addresses = [parse_hostport(addr) for addr in body.get("bootstrap", "").split(",") if addr.strip()]
+    if not addresses:
+        raise ValueError("Bootstrap Servers is required")
 
     def new_client(h: str, p: int, bid=None) -> KafkaClient:
         c = KafkaClient(_NullTraces(), "load", "load", "kafka-load-01",
-                        int(body.get("requestTimeoutMs", 10000)), h, p, sec, bid)
+                        int(body.get("requestTimeoutMs", 10000)), h, p, sec, bid,
+                        tls_ca_path=body.get("caPath", ""))
         clients.append(c)
         return c
 
-    bs = new_client(host, port)
-    await bs.connect(0, label="load-bootstrap")
-    meta_dec, _, _ = await bs.call(
-        3, "Metadata", 0, codec.encode_metadata_v0([topic]),
-        0, "metadata", extra_req={"topics": [topic]}, topic=topic,
-        decode=codec.decode_metadata_v0)
-    meta = _metadata_dict(meta_dec)
-    tmeta = next((x for x in meta["topics"] if x["topic"] == topic), None)
-    if tmeta is None or tmeta.get("error", 0) != 0 or not tmeta.get("partitions"):
-        raise RuntimeError(f"metadata unavailable for '{topic}'")
-    parts = tmeta["partitions"]
-    part = body.get("partition", "auto")
-    if str(part).lower() == "auto":
-        healthy = [p for p in parts if p.get("error", 0) == 0] or parts
-        chosen = random.choice(healthy)
-    else:
-        chosen = next((p for p in parts if p["partition"] == int(part)), None)
-        if chosen is None:
-            raise RuntimeError(f"partition {part} not found")
-    leader_id = chosen["leader"]
-    brokers = meta["brokers"]
-    leader = next((b for b in brokers if b.get("id") == leader_id), None)
-    lhost, lport = (leader["host"], leader["port"]) if leader else (host, port)
-    lc = new_client(lhost, lport, leader_id)
+    bs = None
+    errors = []
+    for host, port in addresses:
+        candidate = new_client(host, port)
+        try:
+            await candidate.connect(0, label="load-bootstrap")
+            bs = candidate
+            break
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{host}:{port}: {exc}")
+            candidate.close()
+    if bs is None:
+        raise ConnectionError("Bootstrap connection failed: " + "; ".join(errors))
     try:
-        await lc.connect(0, label="load-leader")
-    except OSError:
-        lc.host, lc.port = host, port
-        await lc.connect(0, label="load-leader-via-bootstrap")
-    return clients, lc, bs, chosen["partition"]
+        meta_dec, _, _ = await bs.call(
+            3, "Metadata", 0, codec.encode_metadata_v0([topic]),
+            0, "metadata", extra_req={"topics": [topic]}, topic=topic,
+            decode=codec.decode_metadata_v0)
+        meta = _metadata_dict(meta_dec)
+        tmeta = next((x for x in meta["topics"] if x["topic"] == topic), None)
+        if tmeta is None or tmeta.get("error", 0) != 0 or not tmeta.get("partitions"):
+            raise RuntimeError(f"metadata unavailable for '{topic}'")
+        parts = tmeta["partitions"]
+        part = body.get("partition", "auto")
+        if str(part).lower() == "auto":
+            healthy = [p for p in parts if p.get("error", 0) == 0] or parts
+            chosen = random.choice(healthy)
+        else:
+            chosen = next((p for p in parts if p["partition"] == int(part)), None)
+            if chosen is None:
+                raise RuntimeError(f"partition {part} not found")
+        leader_id = chosen["leader"]
+        brokers = meta["brokers"]
+        leader = next((b for b in brokers if b.get("id") == leader_id), None)
+        lhost, lport = (leader["host"], leader["port"]) if leader else (bs.host, bs.port)
+        lc = new_client(lhost, lport, leader_id)
+        try:
+            await lc.connect(0, label="load-leader")
+        except OSError:
+            lc.host, lc.port = bs.host, bs.port
+            await lc.connect(0, label="load-leader-via-bootstrap")
+        return clients, lc, bs, chosen["partition"]
+    except Exception:
+        for client in clients:
+            client.close()
+        raise
 
 
 async def _raw_produce(lc: KafkaClient, topic: str, partition: int,
@@ -250,5 +269,5 @@ def build_report(job: dict) -> str:
     per = job.get("perSec") or []
     if per:
         lines += ["", "## 每秒吞吐（sec: count）", "", "```", ", ".join(f"{x['sec']}:{x['n']}" for x in per), "```"]
-    lines += ["", "> 由 Kafka Client Lab 压测模块生成，Produce v0 真实链路。", ""]
+    lines += ["", "> 由 KAFLAB 压测模块生成，Produce v0 真实链路。", ""]
     return "\n".join(lines)

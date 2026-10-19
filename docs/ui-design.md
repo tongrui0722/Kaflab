@@ -1,11 +1,13 @@
 # UI 设计（Phase 0）
 
+> 此文档记录早期方案，当前落地规范请见 [ui-standards.md](ui-standards.md)。
+
 > 先于编码的重新分析：截图仅作视觉与产品方向参考，本方案已做信息降载与布局优化。
 
 ## 1. 产品信息架构
 
 ```text
-Kafka Client Lab
+KAFLAB
 ├── Dashboard（状态总览，不做操作）
 ├── Producer（MVP 核心：配置 → Trace → Inspector 三栏）
 ├── Consumer（Phase 4：Fetch / Offset / Heartbeat）

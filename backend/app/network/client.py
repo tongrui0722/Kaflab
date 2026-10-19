@@ -30,7 +30,7 @@ class KafkaClient:
 
     def __init__(self, traces: TraceManager, session_id: str, trace_id: str,
                  client_id: str, timeout_ms: int, host: str, port: int,
-                 security: SecurityConfig, broker_id=None):
+                 security: SecurityConfig, broker_id=None, tls_ca_path: str = ""):
         self.traces = traces
         self.session_id = session_id
         self.trace_id = trace_id
@@ -39,6 +39,7 @@ class KafkaClient:
         self.host = host
         self.port = port
         self.security = security
+        self.tls_ca_path = tls_ca_path
         self.broker_id = broker_id
         self.conn: Connection | None = None
         self.corr = 0
@@ -63,13 +64,13 @@ class KafkaClient:
     async def connect(self, step_index: int, label: str = "") -> None:
         t = time.time()
         self.conn = await asyncio.to_thread(
-            TcpConnector(self.timeout_ms).connect, self.host, self.port)
+            TcpConnector(self.timeout_ms, self.security.securityProtocol in ("SSL", "SASL_SSL"), self.tls_ca_path).connect, self.host, self.port)
         self._emit(step="tcp.connect", stepIndex=step_index, status="success",
                    direction="local", apiName="TCP", broker=self._broker(),
                    latencyMs=int((time.time() - t) * 1000),
                    request={"target": f"{self.host}:{self.port}", "label": label},
                    response={"status": "CONNECTED"})
-        if self.security.securityProtocol != "PLAINTEXT":
+        if self.security.securityProtocol.startswith("SASL_"):
             await self._sasl_auth(step_index)
 
     async def _sasl_auth(self, step_index: int) -> None:
@@ -169,8 +170,9 @@ class KafkaClient:
                    extra_req: dict | None = None,
                    topic: str | None = None, partition: int | None = None,
                    decode=None, extra_res: dict | None = None,
-                   resp_index: int | None = None, flexible: bool = False) -> tuple[dict, bytes, bytes]:
-        """Send one request, emit request+response events with HEX, return (decoded, reqFrame, rawResp)."""
+                   resp_index: int | None = None, flexible: bool = False,
+                   capture_raw: bool = True) -> tuple[dict, bytes, bytes]:
+        """Send one request; large repeated batches may omit HEX after the first chunk."""
         assert self.conn is not None
         self.corr += 1
         self.max_corr = max(self.max_corr, self.corr)
@@ -181,7 +183,7 @@ class KafkaClient:
                    direction="request", apiKey=api_key, apiName=api_name,
                    apiVersion=api_version, correlationId=self.corr,
                    broker=self._broker(), topic=topic, partition=partition,
-                   request=req_obj, rawRequest=codec.hexdump(frame))
+                   request=req_obj, rawRequest=codec.hexdump(frame) if capture_raw else None)
         t = time.time()
         raw = await asyncio.to_thread(TcpConnector.request, self.conn, frame[4:])
         lat = int((time.time() - t) * 1000)
@@ -194,7 +196,7 @@ class KafkaClient:
                        apiVersion=api_version, correlationId=rcorr,
                        broker=self._broker(), topic=topic, partition=partition,
                        latencyMs=lat, errorCode=-999, errorName="DECODE_ERROR",
-                       response={"decodeError": str(e)}, rawResponse=codec.hexdump(raw))
+                       response={"decodeError": str(e)}, rawResponse=codec.hexdump(raw) if capture_raw else None)
             raise RuntimeError(f"{api_name} response decode failed: {e}")
         err = dec.get("errorCode") if isinstance(dec, dict) else None
         self._emit(step=step, stepIndex=resp_index if resp_index is not None else step_index,
@@ -204,7 +206,7 @@ class KafkaClient:
                    broker=self._broker(), topic=topic, partition=partition,
                    latencyMs=lat, errorCode=err, response={**(dec if isinstance(dec, dict) else {}),
                                                            **(extra_res or {})},
-                   rawResponse=codec.hexdump(raw))
+                   rawResponse=codec.hexdump(raw) if capture_raw else None)
         return dec, frame, raw
 
     def close(self) -> None:

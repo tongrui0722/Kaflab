@@ -11,7 +11,7 @@ import { ClustersPage } from "./pages/Clusters";
 import { TopicsPage } from "./pages/Topics";
 import { TopicDetailPage } from "./pages/TopicDetail";
 import { ClusterOverviewPage } from "./pages/ClusterOverview";
-import { ProtocolPage, FaultsPage, TracePage, SettingsPage } from "./pages/Misc";
+import { ClientSimulatorPage } from "./pages/ClientSimulator";
 import { LoadTestPage } from "./pages/LoadTest";
 import { Placeholder } from "./components/Shell";
 
@@ -38,11 +38,9 @@ function Guarded() {
           <Route path="/producer" element={<RequireCluster><ProducerPage /></RequireCluster>} />
           <Route path="/consumer" element={<RequireCluster><ConsumerPage /></RequireCluster>} />
           <Route path="/group" element={<RequireCluster><GroupPage /></RequireCluster>} />
-          <Route path="/protocol" element={<RequireCluster><ProtocolPage /></RequireCluster>} />
-          <Route path="/faults" element={<RequireCluster><FaultsPage /></RequireCluster>} />
-          <Route path="/loadtest" element={<RequireCluster><LoadTestPage /></RequireCluster>} />
-          <Route path="/trace" element={<RequireCluster><TracePage /></RequireCluster>} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/sim/producer" element={<ClientSimulatorPage kind="producer" />} />
+          <Route path="/sim/consumer" element={<ClientSimulatorPage kind="consumer" />} />
+          <Route path="/loadtest" element={<LoadTestPage />} />
           <Route path="*" element={<Placeholder title="未知路由" note="返回 Producer。" />} />
         </Routes>
       </Shell>
