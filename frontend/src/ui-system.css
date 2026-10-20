@@ -18,7 +18,8 @@
 body { font-family: var(--font); font-size: var(--fs-body); color: var(--ui-ink); }
 button, input, select, textarea { font-family: inherit; }
 .mono, .metric-card, .overview-table .is-number, .tbl .mono { font-variant-numeric: tabular-nums; }
-.page-h h1, .clusters-page .page-h h1, .overview-hero h1 { font-size: var(--fs-page); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
+.page-h h1, .clusters-page .page-h h1 { font-size: var(--fs-page); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
+.overview-hero h1 { font-size: 15px; line-height: 24px; letter-spacing: 0; text-wrap: nowrap; }
 .page-h p, .ui-note { color: var(--ui-muted); font-size: var(--fs-note); font-weight: 400; line-height: 1.5; }
 .page-h p { margin-top: 3px; }
 .producer-page .card-title, .consumer-page .card-title, .sim-config .card-title,
@@ -32,7 +33,7 @@ button, input, select, textarea { font-family: inherit; }
 .field, .sim-config .field, .group-filters .field { font-size: var(--fs-field); line-height: 1.4; }
 .field { min-height: 36px; }
 .field::placeholder { color: var(--ui-subtle); opacity: 1; }
-.topbar-heading .topbar-page-title, .topbar-heading .topbar-page-title.is-latin { font-size: 12.5px; font-weight: 700; }
+.topbar-heading .topbar-page-title, .topbar-heading .topbar-page-title.is-latin { font-size: 12px; font-weight: 700; }
 
 .card, .overview-panel, .overview-hero, .page-h, .cluster-row-card, .producer-column {
   border-color: var(--ui-border); box-shadow: var(--ui-elevation);
