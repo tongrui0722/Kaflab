@@ -556,9 +556,18 @@ async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Re
         # Kafka 明确返回 NOT_CONTROLLER (41) 表示该请求没有被执行；
         # 刷新 Controller 后只重发一次。其他错误/超时不重试，避免重复创建。
         if result and result.get("errorCode") == 41:
-            log.warning("Kafka Controller changed while creating topic %s; refreshing metadata", name)
+            previous_controller_id = broker["id"]
+            log.warning(
+                "CreateTopics reached a non-controller broker: topic=%s metadataController=%s target=%s:%s; refreshing metadata",
+                name, previous_controller_id, broker["host"], broker["port"],
+            )
             metadata = await _topic_cluster_metadata(cid, request, "topic-create-controller-refresh")
             broker = _controller_broker(metadata)
+            if broker["id"] == previous_controller_id:
+                log.warning(
+                    "Controller ID remained %s after NOT_CONTROLLER for topic %s; check advertised.listeners and per-broker routing to %s:%s",
+                    broker["id"], name, broker["host"], broker["port"],
+                )
             decoded, frame, raw = await _send_create_topic(cid, request, broker, body, 2)
             result = next((t for t in decoded.get("topics", [])
                            if t.get("topic") == name), None)
@@ -639,7 +648,7 @@ def _topic_err_hint(code: int) -> str:
         40: "Topic 配置无效，请检查配置项和值。",
         7: "Kafka Topic 创建请求超时，请检查集群状态并刷新 Topic 列表确认结果。",
         36: "Topic 已存在，请修改 Topic 名称。",
-        41: "Kafka Controller 正在切换，刷新后重试仍未完成；请稍后重试。",
+        41: "创建请求到达了非 Controller Broker。请检查各 Broker 的 advertised.listeners 与外部端口是否一一对应；若集群刚发生 Controller 切换，请稍后重试。",
     }
     return hints.get(code, f"Kafka 拒绝创建 Topic：{error_name(code)}（{code}）")
 
