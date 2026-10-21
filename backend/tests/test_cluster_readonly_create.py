@@ -57,6 +57,18 @@ def test_anonymous_cannot_create_cluster(monkeypatch):
     assert store.saved == []
 
 
+def test_cluster_list_requires_login(monkeypatch):
+    store = SimpleNamespace(list=lambda: [SimpleNamespace(model_dump=lambda: {
+        "id": "secret-cluster", "saslPassword": "secret"})])
+    monkeypatch.setattr(api, "_auth_tokens", {"read-token": "readonly"})
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(api.list_clusters(request_for(store)))
+    assert error.value.status_code == 401
+    assert asyncio.run(api.list_clusters(request_for(store, "read-token"))) == [
+        {"id": "secret-cluster", "saslPassword": "secret"}]
+
+
 def test_readonly_create_can_disable_lag_collection(monkeypatch):
     store = ClusterStore()
     monkeypatch.setattr(api, "_auth_tokens", {"read-token": "readonly"})

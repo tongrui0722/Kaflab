@@ -14,7 +14,10 @@ class Connection:
 
 
 def parse_hostport(addr: str, default_port: int = 9092) -> tuple[str, int]:
-    addr = addr.strip()
+    # Kafka Bootstrap Servers may contain several comma-separated seeds.
+    # This connection uses the first seed; metadata supplies broker addresses
+    # for subsequent requests. Never pass the entire list to DNS as a host.
+    addr = next((item.strip() for item in addr.split(",") if item.strip()), "")
     if ":" in addr:
         h, p = addr.rsplit(":", 1)
         try:

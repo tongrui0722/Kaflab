@@ -242,6 +242,8 @@ async def get_metadata(request: Request, bootstrap: str = Query(""),
 
 @router.get("/api/clusters")
 async def list_clusters(request: Request):
+    if _auth_mode(request) is None:
+        raise HTTPException(401, "登录已失效（后端重启或 token 过期），请退出后重新登录")
     return [c.model_dump() for c in request.app.state.clusters.list()]
 
 

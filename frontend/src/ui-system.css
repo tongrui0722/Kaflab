@@ -1,7 +1,8 @@
 /* KAFLAB UI 规范：旧页面样式之后统一应用文字、控件与表面层级。 */
 :root {
   --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
-  --fs-page: 18px;
+  --fs-page: 16px;
+  --page-head-height: 64px;
   --fs-section: 14px;
   --fs-body: 13px;
   --fs-field: 12px;
@@ -18,10 +19,13 @@
 body { font-family: var(--font); font-size: var(--fs-body); color: var(--ui-ink); }
 button, input, select, textarea { font-family: inherit; }
 .mono, .metric-card, .overview-table .is-number, .tbl .mono { font-variant-numeric: tabular-nums; }
-.page-h h1, .clusters-page .page-h h1 { font-size: var(--fs-page); line-height: 1.3; letter-spacing: -.02em; text-wrap: balance; }
-.overview-hero h1 { font-size: 15px; line-height: 24px; letter-spacing: 0; text-wrap: nowrap; }
+.page-h, .overview-hero { box-sizing: border-box; min-height: var(--page-head-height); align-items: center; padding-block: 10px; }
+.page-h h1, .clusters-page .page-h h1, .overview-hero h1 {
+  font-size: var(--fs-page); line-height: 22px; font-weight: 700; letter-spacing: -.01em;
+}
+.overview-hero h1 { text-wrap: nowrap; }
 .page-h p, .ui-note { color: var(--ui-muted); font-size: var(--fs-note); font-weight: 400; line-height: 1.5; }
-.page-h p { margin-top: 3px; }
+.page-h p, .overview-hero-address { margin-top: 2px; line-height: 16px; }
 .producer-page .card-title, .consumer-page .card-title, .sim-config .card-title,
 .loadtest-page .card-title { font-size: var(--fs-section); }
 .card-title, .overview-panel-title, .group-card-head h2, .sim-section-head h2, .loadtest-section h2 {
