@@ -880,16 +880,17 @@ input.field,textarea.field { background: linear-gradient(180deg,#fff,#fbfdff); }
 .topic-list-filters .topic-search { width: min(100%,410px); min-width: 180px; flex: 1 1 260px; }
 .topic-list-filters .topic-health-filter { width: 150px; flex: 0 0 150px; }
 .topic-table-wrap { max-height: min(68vh,760px); border: 0; border-radius: 0; }
-.topic-table { min-width: 760px; table-layout: fixed; }
+.topic-table { min-width: 900px; table-layout: fixed; }
 .topic-table thead th,.topic-partition-table-wrap thead th,.topic-config-table-wrap thead th,.topic-message-table-wrap thead th { position: sticky; top: 0; z-index: 2; }
-.topic-table th:first-child { width: 38%; }
+.topic-table th:first-child { width: 32%; }
 .topic-table th:nth-child(2),.topic-table th:nth-child(3) { width: 10%; }
 .topic-table th:nth-child(4) { width: 13%; }
-.topic-table th:nth-child(5) { width: 18%; }
+.topic-table th:nth-child(5) { width: 24%; }
 .topic-table th:nth-child(6) { width: 11%; }
 .topic-table td { height: 42px; }
 .topic-leader-list { display: flex; min-width: 0; align-items: center; gap: 4px; white-space: nowrap; }
 .topic-leader-list .badge { flex: 0 0 auto; padding-inline: 7px; font-size: 10.5px; }
+.topic-leader-badge strong { margin-left: 3px; color: #2d648d; font-weight: 700; }
 .topic-name-cell { max-width: 0; }
 .topic-name-link { display: block; overflow: hidden; color: #2d567f; font-weight: 700; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .topic-name-link:hover,.topic-detail-link:hover { color: #246bbd; text-decoration: underline; text-underline-offset: 3px; }

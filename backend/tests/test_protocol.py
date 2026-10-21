@@ -24,6 +24,15 @@ def test_topic_create_error_codes_match_kafka_protocol():
     assert error_name(20) == "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
     assert error_name(36) == "TOPIC_ALREADY_EXISTS"
     assert error_name(41) == "NOT_CONTROLLER"
+    assert error_name(42) == "INVALID_REQUEST"
+    assert error_name(73) == "TOPIC_DELETION_DISABLED"
+
+
+def test_delete_topics_v3_response_decodes_throttle_and_error():
+    body = struct.pack(">ii", 0, 1) + codec.enc_string("sample") + struct.pack(">h", 73)
+    decoded = codec.decode_delete_topics_v1_to_v3(body)
+    assert decoded == {"throttleMs": 0, "topics": [{"topic": "sample", "errorCode": 73}],
+                       "_end": len(body)}
 
 
 def test_build_request_frame_len():

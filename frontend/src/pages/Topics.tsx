@@ -11,6 +11,7 @@ interface TopicRow {
   partitions: number;
   replication: number;
   leaders: number[];
+  leaderDistribution?: { brokerId: number; partitions: number }[];
   hasOffline: boolean;
   hasUnderReplicated?: boolean;
 }
@@ -333,7 +334,7 @@ export function TopicsPage() {
                         </button>
                       </th>
                     ))}
-                    <th title="此 Topic 各分区当前 Leader 所在的 Broker，已去重；RF 是每个分区的副本数">Leader 节点</th>
+                    <th title="统计每个 Broker 担任此 Topic 分区 Leader 的数量；RF 表示每个分区的副本数">Leader 分布（分区）</th>
                     <th className="!text-right">操作</th>
                   </tr>
                 </thead>
@@ -345,9 +346,10 @@ export function TopicsPage() {
                       <td className="!text-center text-slate-600">{row.replication}</td>
                       <td className="!text-center"><span className={`badge ${healthClass(row)}`}>{healthLabel(row)}</span></td>
                       <td>
-                        <div className="topic-leader-list" title={`当前 Leader：${row.leaders.length ? row.leaders.map((leader) => `#${leader}`).join("、") : "无"}`}>
+                        <div className="topic-leader-list" title={`分区 Leader 分布：${(row.leaderDistribution ?? []).map((item) => `Broker #${item.brokerId} 负责 ${item.partitions}/${row.partitions} 个分区`).join("；") || "暂无分布数据"}`}>
                           {row.leaders.length ? <>
-                            {row.leaders.slice(0, 3).map((leader) => <span key={leader} className="badge mute">#{leader}</span>)}
+                            {(row.leaderDistribution ?? row.leaders.map((brokerId) => ({ brokerId, partitions: 0 }))).slice(0, 3).map((item) =>
+                              <span key={item.brokerId} className="badge mute topic-leader-badge">#{item.brokerId}{item.partitions > 0 && <strong>{item.partitions} 分区</strong>}</span>)}
                             {row.leaders.length > 3 && <span className="badge mute" aria-label={`另外 ${row.leaders.length - 3} 个 Leader 节点`}>+{row.leaders.length - 3}</span>}
                           </>
                             : <span className="text-[var(--text-faint)]">无 Leader</span>}

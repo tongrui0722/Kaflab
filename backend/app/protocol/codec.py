@@ -1078,6 +1078,22 @@ def decode_delete_topics_v0(buf: bytes) -> dict:
     return _decode_topic_errors(buf)
 
 
+def decode_delete_topics_v1_to_v3(buf: bytes) -> dict:
+    """DeleteTopics v1–v3: throttle_time_ms + name/error_code pairs."""
+    (throttle,) = struct.unpack_from(">i", buf, 0)
+    off = 4
+    count, off = dec_array_count(buf, off)
+    if count < 0 or count > 1000:
+        raise ValueError(f"bad DeleteTopics response count {count}")
+    topics = []
+    for _ in range(count):
+        name, off = dec_string(buf, off)
+        (code,) = struct.unpack_from(">h", buf, off)
+        off += 2
+        topics.append({"topic": name, "errorCode": code})
+    return {"throttleMs": throttle, "topics": topics, "_end": off}
+
+
 # ---------- CreatePartitions (v0, api 37) / AlterPartitionReassignments (v0, api 45) ----------
 
 def encode_create_partitions_v0(topic: str, count: int, timeout_ms: int = 30000) -> bytes:

@@ -77,7 +77,10 @@ export function TopicDetailPage() {
       const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}`, {
         method: "DELETE", headers: { ...authHeaders() },
       });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) {
+        const body = await r.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(body?.detail || `删除 Topic 失败（HTTP ${r.status}）`);
+      }
       window.location.hash = "#/topics";
     } catch (e) {
       setFetchErr(e instanceof Error ? e.message : String(e));
@@ -179,7 +182,7 @@ export function TopicDetailPage() {
         }
       />
       {fetchErr && <div className="alert err mb-3 flex items-center gap-3">{fetchErr}
-        <button onClick={() => void loadDetail()} className="btn btn-ghost btn-sm ml-auto">重试</button>
+        <button onClick={() => void loadDetail()} className="btn btn-ghost btn-sm ml-auto">刷新详情</button>
       </div>}
       <div className="card overflow-hidden">
         <div role="tablist" aria-label="Topic 详情页面" className="topic-detail-tabs flex gap-1 overflow-x-auto border-b border-[var(--border-soft)] px-3 pt-2 sm:px-4">

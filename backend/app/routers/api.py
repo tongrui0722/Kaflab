@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from collections import Counter
 import json
 import os
 import secrets
@@ -359,6 +360,10 @@ async def cluster_topics(cid: str, request: Request):
         }
         for t in meta["topics"]:
             ps = t.get("partitions", [])
+            leader_counts = Counter(
+                p["leader"] for p in ps
+                if p.get("leader") is not None and p["leader"] >= 0
+            )
             offline_partitions = 0
             under_replicated_partitions = 0
             for p in ps:
@@ -381,7 +386,11 @@ async def cluster_topics(cid: str, request: Request):
                 "topic": t["topic"],
                 "partitions": len(ps),
                 "replication": max((len(p.get("replicas", [])) for p in ps), default=0),
-                "leaders": sorted({p.get("leader") for p in ps if p.get("leader", -1) >= 0}),
+                "leaders": sorted(leader_counts),
+                "leaderDistribution": [
+                    {"brokerId": bid, "partitions": count}
+                    for bid, count in sorted(leader_counts.items())
+                ],
                 "offlinePartitions": offline_partitions,
                 "underReplicatedPartitions": under_replicated_partitions,
                 "hasOffline": offline_partitions > 0,
@@ -475,16 +484,21 @@ def _cluster_client(cid: str, request: Request, label: str,
     return c, kc
 
 
-async def _ensure_admin_api(kc: KafkaClient, api_key: int, api_name: str) -> int:
-    """ApiVersions 协商：确认 broker 支持该管理 API，返回 broker 支持的最大版本。"""
+async def _ensure_admin_api(kc: KafkaClient, api_key: int, api_name: str,
+                            preferred_max: int | None = None) -> int:
+    """ApiVersions 协商：返回当前实现与 Broker 都支持的最高版本。"""
     api_dec, _, _ = await kc.call(18, "ApiVersions", 0, codec.encode_apiversions_v0(), 2,
                                   "apiversions", extra_req={"probe": api_name},
                                   decode=codec.decode_apiversions_v0)
     supported = {a["apiKey"]: (a["minVersion"], a["maxVersion"])
                  for a in api_dec.get("apis", [])}
-    if api_key not in supported or supported[api_key][1] < 0:
+    if api_key not in supported:
         raise HTTPException(501, f"broker 不支持 {api_name}（API key {api_key}）")
-    return supported[api_key][1]
+    minimum, maximum = supported[api_key]
+    selected = min(maximum, preferred_max) if preferred_max is not None else maximum
+    if selected < minimum:
+        raise HTTPException(501, f"broker 不支持平台实现的 {api_name} 协议版本")
+    return selected
 
 
 async def _topic_cluster_metadata(cid: str, request: Request, label: str):
@@ -604,9 +618,10 @@ async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Re
 
 @router.delete("/api/clusters/{cid}/topics/{topic}")
 async def cluster_topic_delete(cid: str, topic: str, request: Request):
-    """删除 Topic（DeleteTopics v0 真实链路）。写入操作，需全部功能模式。"""
+    """通过 Controller 删除 Topic；按 ApiVersions 协商 v0–v3。"""
     _need_lab(request)
-    from ..models import error_name
+    import logging
+    log = logging.getLogger("kcl.topic")
     try:
         for attempt in (1, 2):
             metadata = await _topic_cluster_metadata(cid, request, f"topic-delete-metadata-{attempt}")
@@ -614,27 +629,46 @@ async def cluster_topic_delete(cid: str, topic: str, request: Request):
             _, kc = _cluster_client(cid, request, f"topic-delete-{attempt}", broker)
             try:
                 await kc.connect(1, label=f"topic-delete-controller-{attempt}")
-                await _ensure_admin_api(kc, 20, "DeleteTopics")
-                dec, _, _ = await kc.call(
-                    20, "DeleteTopics", 0, codec.encode_delete_topics_v0([topic]),
+                version = await _ensure_admin_api(kc, 20, "DeleteTopics", preferred_max=3)
+                dec, _, raw = await kc.call(
+                    20, "DeleteTopics", version, codec.encode_delete_topics_v0([topic]),
                     3, "delete-topics",
                     extra_req={"topic": topic, "controllerBrokerId": broker["id"],
-                               "attempt": attempt},
-                    topic=topic, decode=codec.decode_delete_topics_v0)
+                               "attempt": attempt, "version": version},
+                    topic=topic, decode=(codec.decode_delete_topics_v0 if version == 0
+                                         else codec.decode_delete_topics_v1_to_v3))
             finally:
                 kc.close()
             t = next((item for item in dec.get("topics", [])
                       if item.get("topic") == topic), None)
-            code = (t or {}).get("errorCode", -1)
+            if t is None or dec.get("_end") != len(raw) - 4:
+                raise HTTPException(502, "Kafka 删除结果无法确认，请刷新 Topic 列表核对状态")
+            code = t["errorCode"]
             if code != 41 or attempt == 2:
                 break
         if code != 0:
-            raise HTTPException(502, f"删除失败：{error_name(code)}（{code}）")
+            log.warning("Kafka DeleteTopics rejected: topic=%s broker=%s version=%s error=%s (%s)",
+                        topic, broker["id"], version, error_name(code), code)
+            hints = {
+                3: (404, "Topic 不存在或已被删除，请刷新列表"),
+                7: (504, "Kafka 删除请求超时，请刷新 Topic 列表确认结果"),
+                29: (403, "当前 Kafka 用户没有删除此 Topic 的权限"),
+                31: (403, "当前 Kafka 用户没有删除 Topic 的集群权限"),
+                41: (503, "Kafka Controller 正在切换，请稍后重试"),
+                42: (502, "Kafka 拒绝了删除请求（INVALID_REQUEST），请检查 Broker 日志"),
+                73: (409, "Kafka 集群已禁用 Topic 删除（delete.topic.enable=false）；请在 Broker 配置中启用后重试"),
+            }
+            status, message = hints.get(code, (502, f"Kafka 删除失败：{error_name(code)}（{code}）"))
+            raise HTTPException(status, message)
         return {"deleted": topic}
     except HTTPException:
         raise
+    except (TimeoutError, asyncio.TimeoutError) as e:
+        log.exception("Kafka DeleteTopics timed out for %s", topic)
+        raise HTTPException(504, "Kafka 删除请求超时，请刷新 Topic 列表确认结果") from e
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"delete topic failed: {type(e).__name__}: {e}")
+        log.exception("Kafka DeleteTopics failed for %s", topic)
+        raise HTTPException(502, f"Kafka 删除请求失败：{type(e).__name__}；请刷新 Topic 列表确认结果") from e
 
 
 def _topic_err_hint(code: int) -> str:
