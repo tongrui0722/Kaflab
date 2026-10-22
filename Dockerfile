@@ -48,7 +48,7 @@ WORKDIR /app/backend
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app/ ./app/
-COPY backend/client_runners/ ./client_runners/
+COPY backend/client_runners/python_client.py backend/client_runners/node_client.cjs backend/client_runners/topic_admin.py ./client_runners/
 COPY docker/entrypoint.sh /app/docker-entrypoint.sh
 COPY --from=node-build /build/frontend/dist/ /app/frontend/dist/
 COPY --from=node-build /out/node/ ./client_runners/installed/node/

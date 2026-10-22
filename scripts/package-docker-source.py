@@ -9,9 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "release" / "kaflab-docker-source.tar.gz"
 
 FILES = [
-    "Dockerfile", ".dockerignore", "docker.env.example", "docker/entrypoint.sh",
-    "compose.yaml", "compose.env.example",
-    "README.md", "docs/docker.md", "docs/docker-compose.md",
+    "Dockerfile", ".dockerignore", "docker/entrypoint.sh",
+    "README.md", "docs/docker.md",
     "scripts/package-docker-source.py",
     "backend/requirements.txt",
     "backend/client_runners/setup.py", "backend/client_runners/python_client.py",

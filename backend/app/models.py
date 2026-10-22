@@ -122,11 +122,6 @@ class GroupDescribeRequest(BaseModel):
     saslPassword: str = ""
 
 
-class FaultToggle(BaseModel):
-    name: str
-    enabled: bool = True
-
-
 class TopicCreationRequest(BaseModel):
     """唯一的 Topic 创建请求契约；与 Kafbat TopicCreation 字段对齐。"""
     model_config = ConfigDict(extra="forbid")

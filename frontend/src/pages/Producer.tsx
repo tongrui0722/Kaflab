@@ -10,7 +10,7 @@ import { TopicPicker } from "../components/TopicPicker";
 import { useProducerSession } from "../api/producer";
 import { friendlyWriteError, useAuth } from "../auth";
 import { useLab } from "../lab";
-import { stepsFromEvents, fmtTime } from "../mock/effect";
+import { stepsFromEvents, fmtTime } from "../traceSteps";
 import type { RecentMsg } from "../types";
 
 const inputCls = "field mono";

@@ -94,8 +94,6 @@ docker run -d --name kaflab --init --restart unless-stopped \
 
 自签 CA 文件需要另加只读挂载，例如 `--mount "type=bind,source=$HOME/kaflab/certs,target=/certs,readonly"`，然后在页面填写容器路径 `/certs/ca.pem`。
 
-仓库还保留可选的 [Compose 部署指南](docker-compose.md)。Compose 和直接 `docker run` 选择一种即可，避免两个容器占用同一宿主机端口。
-
 ## 基础镜像拉取失败
 
 若 `docker build` 在 `load metadata` 阶段报错，且地址为 `docker.mirrors.tuna.tsinghua.edu.cn`，问题在 Docker daemon 配置的镜像源或 DNS，尚未执行到本项目的构建步骤。清华镜像站的 [Docker CE 页面](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/)说明该站提供 Docker 软件包，并非 Docker Hub 镜像服务。

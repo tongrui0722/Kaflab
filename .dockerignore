@@ -7,6 +7,7 @@ venv
 frontend/node_modules
 frontend/dist
 frontend/.env*
+backend/tests
 backend/client_runners/installed
 backend/client_runners/tools
 backend/client_runners/java/target
@@ -19,6 +20,9 @@ backend/monitoring_samples.db
 backend/app/users.json
 data
 release
+docs
+scripts
+README.md
 .env
 docker*.env
 kaflab.env

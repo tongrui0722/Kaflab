@@ -6,7 +6,7 @@ import { FullTimeline } from "../components/Topology";
 import { TraceTimeline } from "../components/TraceTimeline";
 import { KV, PageHeader, StatusBadge } from "../components/bits";
 import { TopicPicker } from "../components/TopicPicker";
-import { stepsFromEvents } from "../mock/effect";
+import { stepsFromEvents } from "../traceSteps";
 import type { KafkaTraceEvent } from "../types";
 
 const inputCls = "field mono";

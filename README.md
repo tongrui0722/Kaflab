@@ -39,12 +39,13 @@ python backend/client_runners/setup.py go 1.21.0
 
 两个模拟页支持独立配置 Bootstrap Servers、Topic、PLAINTEXT/SSL/SASL、安全认证和 CA 文件；生产端可设消息模板、分区、数量、速率、时长；消费端可设消费组、起始位置、消息数量、时长，默认**不提交 Offset**。每次运行有独立 PID、状态、实时日志和历史记录；同一主机最多并发 3 个模拟进程。停止按钮会终止对应进程。只读模式可查看日志，启动和停止需要切换到“全部功能”。
 
-运行记录保存在 `backend/client_sim_data/`（可通过 `KCL_CLIENT_SIM_DATA` 覆盖）。记录不会保存消息内容或 SASL 密码；日志最多保留 4 MB，密码会被脱敏。连接凭据只在启动时通过进程标准输入传入。请为模拟器使用专用测试 Topic，并按需控制生产条数与提交 Offset。
+运行记录保存在 `backend/client_sim_data/`（可通过 `KCL_CLIENT_SIM_DATA` 覆盖）。记录不会保存消息内容或 SASL 密码；日志最多保留 16 MiB，密码会被脱敏。连接凭据只在启动时通过进程标准输入传入。请为模拟器使用专用测试 Topic，并按需控制生产条数与提交 Offset。
 
 ## 验证
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt
 python -m pytest -q
 cd ../frontend
 npm run build

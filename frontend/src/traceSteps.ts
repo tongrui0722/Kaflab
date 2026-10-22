@@ -1,4 +1,4 @@
-import type { KafkaTraceEvent, TraceStep } from "../types";
+import type { KafkaTraceEvent, TraceStep } from "./types";
 
 export function stepsFromEvents(events: KafkaTraceEvent[]): TraceStep[] {
   const byIdx = new Map<number, KafkaTraceEvent[]>();
