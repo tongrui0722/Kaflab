@@ -28,3 +28,6 @@ docker*.env
 kaflab.env
 *.log
 *.tmp
+
+# External projects kept for feature comparison
+reference-projects/

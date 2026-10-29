@@ -10,7 +10,7 @@ OUTPUT = ROOT / "release" / "kaflab-docker-source.tar.gz"
 
 FILES = [
     "Dockerfile", ".dockerignore", "docker/entrypoint.sh",
-    "README.md", "docs/docker.md",
+    "README.md", "docs/docker.md", "docs/architecture.md",
     "scripts/package-docker-source.py",
     "backend/requirements.txt",
     "backend/client_runners/setup.py", "backend/client_runners/python_client.py",

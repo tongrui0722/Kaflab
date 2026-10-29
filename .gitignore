@@ -32,3 +32,6 @@ release/
 .env
 docker*.env
 kaflab.env
+
+# External projects kept for feature comparison
+reference-projects/
