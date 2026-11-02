@@ -74,6 +74,7 @@ class ProduceMessage(BaseModel):
 
 
 class ProduceRequest(BaseModel):
+    clusterId: str = ""
     bootstrap: str = "192.168.127.129:19092"
     topic: str = "test-topic"
     partition: str = "auto"
@@ -96,6 +97,7 @@ class ProduceRequest(BaseModel):
 
 
 class ConsumerFetchRequest(BaseModel):
+    clusterId: str = ""
     bootstrap: str = "192.168.127.129:19092"
     topic: str = "test-topic"
     partition: int = 0
@@ -112,6 +114,7 @@ class ConsumerFetchRequest(BaseModel):
 
 
 class GroupDescribeRequest(BaseModel):
+    clusterId: str = ""
     bootstrap: str = "192.168.127.129:19092"
     groupId: str = "test-group"
     clientId: str = "kafka-sim-01"

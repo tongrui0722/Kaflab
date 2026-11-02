@@ -68,6 +68,7 @@ docker run -d --name kaflab --init --restart unless-stopped \
 | `KCL_LAG_INTERVAL_SECONDS` | `60` | Lag 采样间隔，允许 10–3600 秒 |
 | `KCL_LAG_TIMEOUT_SECONDS` | `30` | 单集群采样超时，允许 1–300 秒 |
 | `KCL_LOG_LEVEL` | `info` | `critical`、`error`、`warning`、`info`、`debug`、`trace` |
+| `KCL_SECRET_KEY` | 自动生成 | 可选的持久 Fernet 密钥；设置后必须在重建容器时保持一致 |
 
 `KCL_CLIENT_SIM_DATA` 可以不设，默认自动使用 `/data/client_sim_data`。若覆盖，必须位于 `/data` 下。Docker 镜像始终使用环境变量进行登录验证，不会读取或修改已挂载的 `users.json`。该文件只供非 Docker 的本地运行模式使用。
 
@@ -83,10 +84,13 @@ docker run -d --name kaflab --init --restart unless-stopped \
 | `backend/broker_nodes.json` | `broker_nodes.json` |
 | `backend/sessions.json` | `sessions.json` |
 | `backend/monitoring_samples.db` | `monitoring_samples.db` |
+| `backend/operations.db` | `operations.db` |
+| `backend/audit.jsonl`、`backend/group_offset_audit.jsonl` | 同名文件 |
+| `backend/.kaflab.key` | `.kaflab.key` |
 | `backend/traces/` | `traces/` |
 | `backend/client_sim_data/` | `client_sim_data/` |
 
-备份时复制整个宿主机数据目录。请确认容器能读写，并限制其他系统用户读取其中的 Kafka 凭据和日志。
+备份时复制整个宿主机数据目录。请确认容器能读写，并限制其他系统用户读取其中的 Kafka 凭据和日志。 集群密码现在加密保存，必须同时备份 `clusters.json` 与 `.kaflab.key`（或保留原有 `KCL_SECRET_KEY`）；密钥丢失后无法解密原有密码。
 
 ## Kafka 地址与证书
 

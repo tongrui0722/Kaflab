@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useConn } from "../conn";
@@ -40,7 +41,7 @@ export function TopicDetailPage() {
     setDetailLoading(true);
     setFetchErr(null);
     try {
-      const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}`);
+      const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}`);
       if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
       const d = await r.json() as { partitions: PartRow[]; brokers: typeof brokers };
       setDetail(d.partitions);
@@ -74,14 +75,15 @@ export function TopicDetailPage() {
   const deleteTopic = async () => {
     setDelBusy(true);
     try {
-      const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}`, {
-        method: "DELETE", headers: { ...authHeaders() },
+      const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}/delete-task`, {
+        method: "POST", headers: { ...authHeaders() },
       });
       if (!r.ok) {
         const body = await r.json().catch(() => null) as { detail?: string } | null;
         throw new Error(body?.detail || `删除 Topic 失败（HTTP ${r.status}）`);
       }
-      window.location.hash = "#/topics";
+      const task = await r.json() as { id: string };
+      window.location.hash = "#/operations?task=" + encodeURIComponent(task.id);
     } catch (e) {
       setFetchErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -95,7 +97,7 @@ export function TopicDetailPage() {
     setExpBusy(true);
     setExpMsg(null);
     try {
-      const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}/partitions`, {
+      const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}/partitions`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ count: expTarget }),
       });
@@ -117,7 +119,7 @@ export function TopicDetailPage() {
     setRfBusy(true);
     setRfMsg(null);
     try {
-      const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}/reassignment`, {
+      const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(topic)}/reassignment`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ replication: rfTarget }),
       });

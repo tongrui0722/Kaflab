@@ -35,3 +35,8 @@ kaflab.env
 
 # External projects kept for feature comparison
 reference-projects/
+# Persistent Kafka credential encryption key
+.kaflab.key
+backend/operations.db
+backend/audit.jsonl
+backend/group_offset_audit.jsonl

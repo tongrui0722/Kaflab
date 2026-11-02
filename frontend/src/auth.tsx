@@ -68,6 +68,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [auth]);
 
   const logout = useCallback(() => {
+    const token = load().token;
+    if (token) void fetch(API + "/api/auth/logout", {
+      method: "POST", headers: { Authorization: "Bearer " + token },
+    }).catch(() => undefined);
     try { sessionStorage.removeItem(KEY); sessionStorage.removeItem("kcl-active-cluster"); } catch { /* ignore */ }
     setAuth({ token: null, mode: "readonly", username: null });
   }, []);

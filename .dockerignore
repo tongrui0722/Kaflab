@@ -31,3 +31,7 @@ kaflab.env
 
 # External projects kept for feature comparison
 reference-projects/
+.kaflab.key
+backend/operations.db
+backend/audit.jsonl
+backend/group_offset_audit.jsonl

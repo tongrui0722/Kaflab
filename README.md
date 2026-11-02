@@ -6,9 +6,10 @@ Kafka 集群工作台与客户端模拟工具。浏览集群状态、管理 Topi
 
 | 区域 | 功能 |
 | --- | --- |
-| 集群工作空间 | 集群概览、Broker 与 Topic 状态、Topic 创建/配置/分区操作、消费组与 Lag |
+| 集群工作空间 | 集群概览、Broker 与 Topic 状态、Topic 创建/配置/分区操作、后台 Topic 删除、消费组位移管理与 Lag |
 | 数据工作台 | Producer、Consumer、请求链路与协议细节 |
 | 工具 | Python、Java、Node.js、Go 客户端模拟；生产压测与运行日志 |
+| 监控 | Broker/Topic 健康趋势、Lag 采样状态、平台内规则告警与事件 |
 
 客户端模拟和压测可以独立填写 Kafka 地址，无需进入某个集群工作空间。客户端模拟在 KAFLAB 所在主机启动独立进程。
 
@@ -88,7 +89,7 @@ docker/               镜像入口脚本
 scripts/              源码打包脚本
 ```
 
-模块边界、数据路径与接口分组见 [架构说明](docs/architecture.md)。集群操作的请求流程及影响见 [集群操作说明](docs/cluster-operations.md)。
+模块边界、数据路径与接口分组见 [架构说明](docs/architecture.md)。集群操作的请求流程及影响见 [集群操作说明](docs/cluster-operations.md)。登录授权、后台删除任务、监控告警与消费组位移操作见 [安全与操作说明](docs/security-tasks-monitoring.md)。
 
 ## 检查
 

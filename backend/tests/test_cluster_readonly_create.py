@@ -32,7 +32,7 @@ def test_readonly_can_create_but_cannot_edit_or_remove(monkeypatch):
     monkeypatch.setattr(api, "_auth_tokens", {"read-token": "readonly", "full-token": "full"})
     read_request = request_for(store, "read-token")
 
-    assert asyncio.run(api.save_cluster({"bootstrap": "broker:9092"}, read_request)) == {"id": "new-cluster"}
+    assert asyncio.run(api.save_cluster({"bootstrap": "broker:9092"}, read_request)) == {"id": "new-cluster", "hasSaslPassword": False}
     assert len(store.saved) == 1
 
     with pytest.raises(HTTPException) as edit_error:
@@ -45,7 +45,7 @@ def test_readonly_can_create_but_cannot_edit_or_remove(monkeypatch):
     assert remove_error.value.status_code == 403
 
     assert asyncio.run(api.save_cluster({"id": "new-cluster", "bootstrap": "other:9092"},
-                                        request_for(store, "full-token"))) == {"id": "new-cluster"}
+                                        request_for(store, "full-token"))) == {"id": "new-cluster", "hasSaslPassword": False}
 
 
 def test_anonymous_cannot_create_cluster(monkeypatch):
@@ -66,7 +66,7 @@ def test_cluster_list_requires_login(monkeypatch):
         asyncio.run(api.list_clusters(request_for(store)))
     assert error.value.status_code == 401
     assert asyncio.run(api.list_clusters(request_for(store, "read-token"))) == [
-        {"id": "secret-cluster", "saslPassword": "secret"}]
+        {"id": "secret-cluster", "hasSaslPassword": True}]
 
 
 def test_readonly_create_can_disable_lag_collection(monkeypatch):
@@ -94,5 +94,5 @@ def test_login_mode_switch_and_cluster_create_share_the_same_token(monkeypatch):
         assert (await api.auth_switch_mode({"mode": "full"}, request))["mode"] == "full"
         return await api.save_cluster({"name": "test", "bootstrap": "broker:9092"}, request)
 
-    assert asyncio.run(run()) == {"id": "new-cluster"}
+    assert asyncio.run(run()) == {"id": "new-cluster", "hasSaslPassword": False}
     assert len(store.saved) == 1

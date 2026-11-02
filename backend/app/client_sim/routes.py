@@ -7,6 +7,7 @@ from .models import RunCreate
 from .topics import TopicConnection, topic_admin
 from .registry import catalog
 from .config_schema import config_schema
+from ..routers.connection import managed_fields
 
 router = APIRouter(prefix="/api/client-sim")
 
@@ -45,6 +46,8 @@ async def list_runs(request: Request):
 @router.post("/topics/list")
 async def list_topics(connection: TopicConnection, request: Request):
     _authorize(request)
+    if connection.clusterId:
+        connection = connection.model_copy(update=managed_fields(request, connection.clusterId))
     try:
         return await topic_admin("list", connection.model_dump())
     except ValueError as exc:
@@ -54,6 +57,8 @@ async def list_topics(connection: TopicConnection, request: Request):
 @router.post("/runs", status_code=201)
 async def create_run(spec: RunCreate, request: Request):
     _authorize(request, write=True)
+    if spec.clusterId:
+        spec = spec.model_copy(update=managed_fields(request, spec.clusterId))
     try:
         return await request.app.state.client_sim.start(spec)
     except ValueError as exc:

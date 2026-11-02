@@ -1,19 +1,24 @@
 from __future__ import annotations
 import asyncio
+import base64
+import hashlib
+import hmac
 from collections import Counter
 import json
 import os
 import secrets
+import time
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import monitoring
+from ..cluster.manager import ClusterManager
 from ..consumer.engine import ConsumerEngine
 from ..models import TopicCreationRequest, error_name
 from ..network.client import KafkaClient
 from ..models import SecurityConfig
 from ..network.tcp import TcpConnector, parse_hostport
 from ..protocol import codec
-from .permissions import _auth_tokens, auth_mode, require_full
+from .permissions import _auth_tokens, _auth_users, auth_mode, require_full, principal, require_cluster
 
 router = APIRouter()
 
@@ -28,37 +33,80 @@ _sec_of = lambda r: SecurityConfig(securityProtocol=r.securityProtocol,
 _DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.dirname(os.path.dirname(__file__))
 _USERS_FILE = os.path.join(_DATA_DIR, "users.json")
 
+def _password_hash(password: str) -> str:
+    salt = os.urandom(16)
+    rounds = 210000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
+    return "pbkdf2_sha256$%d$%s$%s" % (
+        rounds, base64.b64encode(salt).decode(), base64.b64encode(digest).decode())
+
+
+def _password_matches(saved: str, supplied: str) -> bool:
+    if not saved.startswith("pbkdf2_sha256$"):
+        return hmac.compare_digest(saved, supplied)
+    try:
+        _, rounds, salt, expected = saved.split("$")
+        actual = hashlib.pbkdf2_hmac("sha256", supplied.encode("utf-8"),
+                                    base64.b64decode(salt), int(rounds))
+        return hmac.compare_digest(actual, base64.b64decode(expected))
+    except (ValueError, TypeError):
+        return False
+
+
+def _write_users(users: list[dict]) -> None:
+    temporary = _USERS_FILE + ".tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"users": users}, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, _USERS_FILE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def _load_users() -> list[dict]:
-    """容器由环境变量控制登录；本地模式沿用持久化用户文件。"""
+    """Docker uses environment credentials; local users are hashed on disk."""
     if os.environ.get("KCL_AUTH_SOURCE") == "environment":
         return [{"username": (os.environ.get("KCL_USERNAME") or "admin").strip() or "admin",
-                 "password": os.environ.get("KCL_PASSWORD") or "admin"}]
+                 "password": os.environ.get("KCL_PASSWORD") or "admin",
+                 "role": "admin"}]
     try:
-        with open(_USERS_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        users = data.get("users", []) if isinstance(data, dict) else []
-        if isinstance(users, list) and users:
-            valid = [u for u in users if isinstance(u, dict)
-                     and u.get("username") and u.get("password")]
-            if valid:
-                return valid
+        with open(_USERS_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
     except FileNotFoundError:
-        pass
+        initial = [{"username": os.environ.get("KCL_USERNAME") or "admin",
+                    "password": _password_hash(os.environ.get("KCL_PASSWORD") or "admin"),
+                    "role": "admin"}]
+        try:
+            fd = os.open(_USERS_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump({"users": initial}, handle, ensure_ascii=False, indent=2)
+            return initial
+        except FileExistsError:
+            return _load_users()
+        except OSError:
+            raise HTTPException(503, "用户配置文件写入失败，请检查数据目录权限") from None
     except (OSError, ValueError, TypeError):
         raise HTTPException(503, "用户配置文件读取失败，请检查 users.json") from None
-    else:
+    users = data.get("users") if isinstance(data, dict) else None
+    if not isinstance(users, list) or not users:
         raise HTTPException(503, "用户配置文件无有效账号，请检查 users.json")
-    # 仅首次启动、文件不存在时创建初始账号。
-    default = {"users": [{"username": os.environ.get("KCL_USERNAME") or "admin",
-                           "password": os.environ.get("KCL_PASSWORD") or "admin"}]}
-    try:
-        with open(_USERS_FILE, "x", encoding="utf-8") as f:
-            json.dump(default, f, ensure_ascii=False, indent=2)
-    except FileExistsError:
-        return _load_users()
-    except OSError:
-        raise HTTPException(503, "用户配置文件写入失败，请检查数据目录权限") from None
-    return default["users"]
+    valid = [dict(user) for user in users if isinstance(user, dict)
+             and user.get("username") and user.get("password")]
+    if not valid:
+        raise HTTPException(503, "用户配置文件无有效账号，请检查 users.json")
+    if any(not str(user["password"]).startswith("pbkdf2_sha256$") for user in valid):
+        for user in valid:
+            if not str(user["password"]).startswith("pbkdf2_sha256$"):
+                user["password"] = _password_hash(str(user["password"]))
+        try:
+            _write_users(valid)
+        except OSError:
+            raise HTTPException(503, "用户凭据迁移失败，请检查 users.json 权限") from None
+    return valid
 
 
 @router.post("/api/auth/login")
@@ -67,12 +115,16 @@ async def auth_login(body: dict):
     if mode not in ("readonly", "full"):
         raise HTTPException(400, "mode must be readonly|full")
     username = (body.get("username", "") or "").strip()
-    ok = any(u.get("username") == username and u.get("password") == body.get("password", "")
-             for u in _load_users())
-    if not username or not ok:
+    user = next((u for u in _load_users() if u.get("username") == username
+                 and _password_matches(str(u.get("password", "")), body.get("password", ""))), None)
+    if not username or user is None:
         raise HTTPException(401, "用户名或密码错误")
     tok = secrets.token_hex(16)
+    if user.get("role") == "viewer" and mode == "full":
+        raise HTTPException(403, "该账号仅有只读权限")
     _auth_tokens[tok] = mode
+    _auth_users[tok] = {"username": username, "role": user.get("role", "admin"),
+                        "clusters": user.get("clusters"), "operations": user.get("operations")}
     return {"token": tok, "mode": mode, "username": username}
 
 
@@ -102,8 +154,19 @@ async def auth_switch_mode(body: dict, request: Request):
     mode = body.get("mode")
     if mode not in ("readonly", "full"):
         raise HTTPException(400, "mode must be readonly|full")
+    if mode == "full" and _auth_users.get(token, {}).get("role") == "viewer":
+        raise HTTPException(403, "该账号仅有只读权限")
     _auth_tokens[token] = mode
     return {"mode": mode}
+
+
+@router.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    _auth_tokens.pop(token, None)
+    _auth_users.pop(token, None)
+    return {"ok": True}
 
 
 @router.get("/api/health")
@@ -115,22 +178,31 @@ async def health():
 async def list_clusters(request: Request):
     if _auth_mode(request) is None:
         raise HTTPException(401, "登录已失效（后端重启或 token 过期），请退出后重新登录")
-    return [c.model_dump() for c in request.app.state.clusters.list()]
+    token = request.headers.get("authorization", "")[7:]
+    allowed = _auth_users.get(token, {}).get("clusters")
+    return [ClusterManager.public(c) for c in request.app.state.clusters.list()
+            if allowed is None or c.id in allowed]
 
 
 @router.post("/api/clusters")
 async def save_cluster(body: dict, request: Request):
     if (body or {}).get("id"):
         _need_lab(request)
+        token = request.headers.get("authorization", "")[7:]
+        allowed = _auth_users.get(token, {}).get("clusters")
+        if allowed is not None and str(body["id"]) not in allowed:
+            raise HTTPException(403, "无权修改该集群")
     elif _auth_mode(request) is None:
         raise HTTPException(401, "登录已失效（后端重启或 token 过期），请退出后重新登录")
+    elif _auth_users.get(request.headers.get("authorization", "")[7:], {}).get("clusters") is not None:
+        raise HTTPException(403, "受限账号不能新增集群")
     try:
         cluster = request.app.state.clusters.save(body or {})
         if (body or {}).get("monitoringEnabled") is False:
             status = monitoring.get_collector(cluster.id)
             if status["running"]:
                 monitoring.set_collector(cluster.id, False, status["last_ok"], status["last_error"])
-        return cluster.model_dump()
+        return ClusterManager.public(cluster)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -275,6 +347,54 @@ async def cluster_topics(cid: str, request: Request):
         raise HTTPException(502, f"topics failed: {type(e).__name__}: {e}")
     finally:
         kc.close()
+
+
+# Kafka Metadata still returns a complete snapshot; the API caches one snapshot
+# and paginates/filter it server-side for browser-sized responses.
+_topic_cache: dict[str, dict] = {}
+
+
+@router.get("/api/clusters/{cid}/topics/page")
+async def cluster_topics_page(cid: str, request: Request, page: int = Query(1, ge=1),
+                              size: int = Query(20, ge=1, le=100),
+                              q: str = Query(""), status: str = Query("all"),
+                              sort: str = Query("topic"), asc: bool = Query(True),
+                              refresh: bool = Query(False)):
+    if status not in {"all", "healthy", "offline", "under-replicated"}:
+        raise HTTPException(400, "invalid status")
+    if sort not in {"topic", "partitions", "replication", "health"}:
+        raise HTTPException(400, "invalid sort")
+    if request.app.state.clusters.get(cid) is None:
+        raise HTTPException(404, "cluster not found")
+    now = time.time()
+    cached = _topic_cache.get(cid)
+    cache_hit = bool(cached and now - cached["sampledAt"] < 30 and not refresh)
+    if not cache_hit:
+        snapshot = await cluster_topics(cid, request)
+        cached = {"data": snapshot, "sampledAt": int(now)}
+        _topic_cache[cid] = cached
+    data = cached["data"]
+    all_rows = data["topics"]
+    search = q.strip().lower()
+    rows = [row for row in all_rows if (not search or search in row["topic"].lower())
+            and (status == "all"
+                 or status == "healthy" and not row["hasOffline"] and not row["hasUnderReplicated"]
+                 or status == "offline" and row["hasOffline"]
+                 or status == "under-replicated" and not row["hasOffline"] and row["hasUnderReplicated"])]
+    def rank(row):
+        return 2 if row["hasOffline"] else 1 if row["hasUnderReplicated"] else 0
+    rows.sort(key=lambda row: (row["topic"] if sort == "topic" else
+                               row["partitions"] if sort == "partitions" else
+                               row["replication"] if sort == "replication" else rank(row),
+                               row["topic"]), reverse=not asc)
+    start = (page - 1) * size
+    return {"clusterId": cid, "topics": rows[start:start + size], "total": len(rows),
+            "totalTopics": len(all_rows), "page": page, "size": size,
+            "sampledAt": cached["sampledAt"], "cached": cache_hit,
+            "brokers": data["brokers"],
+            "summary": {"partitions": sum(row["partitions"] for row in all_rows),
+                        "offline": sum(bool(row["hasOffline"]) for row in all_rows),
+                        "underReplicated": sum(bool(row["hasUnderReplicated"]) for row in all_rows)}}
 
 
 @router.get("/api/clusters/{cid}/topics/{topic}/messages")
@@ -472,6 +592,7 @@ async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Re
                       else 503 if code == 41 else 502)
             raise HTTPException(status, _topic_err_hint(code))
 
+        _topic_cache.pop(cid, None)
         return {"name": name, "partitions": body.partitions,
                 "replicationFactor": body.replicationFactor,
                 "configs": body.configs, "apiVersion": 0,
@@ -490,6 +611,10 @@ async def cluster_topic_create(cid: str, body: TopicCreationRequest, request: Re
 async def cluster_topic_delete(cid: str, topic: str, request: Request):
     """通过 Controller 删除 Topic；按 ApiVersions 协商 v0–v3。"""
     _need_lab(request)
+    return await delete_topic_once(cid, topic, request)
+
+
+async def delete_topic_once(cid: str, topic: str, request: Request):
     import logging
     log = logging.getLogger("kcl.topic")
     try:
@@ -530,6 +655,7 @@ async def cluster_topic_delete(cid: str, topic: str, request: Request):
             }
             status, message = hints.get(code, (502, f"Kafka 删除失败：{error_name(code)}（{code}）"))
             raise HTTPException(status, message)
+        _topic_cache.pop(cid, None)
         return {"deleted": topic}
     except HTTPException:
         raise

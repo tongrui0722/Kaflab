@@ -8,12 +8,14 @@ from ..network.client import KafkaClient
 from ..network.tcp import parse_hostport
 from ..protocol import codec
 from .permissions import _need_lab
+from .connection import managed_fields
 
 router = APIRouter()
 
 
 @router.get("/api/cluster/status")
 async def cluster_status(request: Request, bootstrap: str = Query(""),
+                         clusterId: str = Query(""),
                          topic: str = Query("test-topic"),
                          securityProtocol: str = Query("PLAINTEXT"),
                          saslMechanism: str = Query("PLAIN"),
@@ -22,6 +24,13 @@ async def cluster_status(request: Request, bootstrap: str = Query(""),
     """Real probe: TCP + ApiVersions + Metadata. No mock — failures return 502."""
     import uuid as _u
     from ..models import KafkaTraceEvent
+    if clusterId:
+        fields = managed_fields(request, clusterId)
+        bootstrap = fields["bootstrap"]
+        securityProtocol = fields["securityProtocol"]
+        saslMechanism = fields["saslMechanism"]
+        saslUsername = fields["saslUsername"]
+        saslPassword = fields["saslPassword"]
     host, port = parse_hostport(bootstrap or "localhost:19092")
     sec = SecurityConfig(securityProtocol=securityProtocol,  # type: ignore[arg-type]
                          saslMechanism=saslMechanism,  # type: ignore[arg-type]
@@ -85,6 +94,8 @@ async def get_session(sid: str, request: Request):
 @router.post("/api/producer/send")
 async def producer_send(req: ProduceRequest, background: BackgroundTasks, request: Request):
     _need_lab(request)
+    if req.clusterId:
+        req = req.model_copy(update=managed_fields(request, req.clusterId))
     sessions = request.app.state.sessions
     engine = request.app.state.producer
     if req.sessionId and sessions.get(req.sessionId):
@@ -99,12 +110,20 @@ async def producer_send(req: ProduceRequest, background: BackgroundTasks, reques
 
 @router.get("/api/metadata")
 async def get_metadata(request: Request, bootstrap: str = Query(""),
+                       clusterId: str = Query(""),
                        topic: str = Query("test-topic"),
                        securityProtocol: str = Query("PLAINTEXT"),
                        saslMechanism: str = Query("PLAIN"),
                        saslUsername: str = Query(""),
                        saslPassword: str = Query("")):
     import uuid as _u
+    if clusterId:
+        fields = managed_fields(request, clusterId)
+        bootstrap = fields["bootstrap"]
+        securityProtocol = fields["securityProtocol"]
+        saslMechanism = fields["saslMechanism"]
+        saslUsername = fields["saslUsername"]
+        saslPassword = fields["saslPassword"]
     host, port = parse_hostport(bootstrap or "localhost:19092")
     sec = SecurityConfig(securityProtocol=securityProtocol,  # type: ignore[arg-type]
                          saslMechanism=saslMechanism,  # type: ignore[arg-type]
@@ -151,6 +170,8 @@ async def consumer_fetch(req: ConsumerFetchRequest, background: BackgroundTasks,
                          request: Request):
     if (req.groupId or "").strip():
         _need_lab(request)  # 带 Group 会提交位点，视为写入
+    if req.clusterId:
+        req = req.model_copy(update=managed_fields(request, req.clusterId))
     sessions = request.app.state.sessions
     engine: ConsumerEngine = request.app.state.consumer
     sess = sessions.create(client_id=req.clientId, operation="Consumer",
@@ -161,6 +182,8 @@ async def consumer_fetch(req: ConsumerFetchRequest, background: BackgroundTasks,
 
 @router.post("/api/groups/describe")
 async def group_describe(req: GroupDescribeRequest, request: Request):
+    if req.clusterId:
+        req = req.model_copy(update=managed_fields(request, req.clusterId))
     engine: ConsumerEngine = request.app.state.consumer
     try:
         return await engine.describe_group(req)

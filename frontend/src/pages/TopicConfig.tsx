@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useEffect, useMemo, useState } from "react";
 import { authHeaders } from "../auth";
 
@@ -83,7 +84,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(
+      const r = await apiFetch(
         `${(import.meta.env.VITE_API_BASE as string) || window.location.origin}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
         { headers: authHeaders() });
       const body = await r.json().catch(() => ({}));
@@ -132,7 +133,7 @@ export function TopicConfigPanel({ cid, topic, readonly }: { cid: string; topic:
     setSaving(true);
     setSaveErr(null);
     try {
-      const r = await fetch(
+      const r = await apiFetch(
         `${(import.meta.env.VITE_API_BASE as string) || window.location.origin}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/config`,
         {
           method: "PUT",

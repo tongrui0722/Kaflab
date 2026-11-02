@@ -1,6 +1,8 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConn } from "../conn";
 import { GroupStateBadge, PageHeader } from "../components/bits";
+import { useAuth } from "../auth";
 
 const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
 
@@ -25,6 +27,17 @@ interface LagDetail {
 
 export function GroupPage() {
   const { conn } = useConn();
+  const { mode } = useAuth();
+  const [resetTopic, setResetTopic] = useState("");
+  const [resetTarget, setResetTarget] = useState<"earliest" | "latest">("latest");
+  const [preview, setPreview] = useState<{previewToken: string; expiresAt: number;
+    rows: {partition: number; current: number | null; target: number; end: number}[]} | null>(null);
+  const [confirmGroup, setConfirmGroup] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [resetResult, setResetResult] = useState("");
+  const [resetOutcome, setResetOutcome] = useState<{partition?: number; target?: number;
+    errorCode?: number; errorName?: string; verified?: boolean; error?: string}[]>([]);
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [lag, setLag] = useState<LagDetail | null>(null);
@@ -53,7 +66,7 @@ export function GroupPage() {
     if (!silent) setLagLoading(true);
     try {
       const query = encodeURIComponent(topics.join(","));
-      const response = await fetch(`${API}/api/clusters/${conn.id}/groups/${encodeURIComponent(groupId)}/lag?topics=${query}`);
+      const response = await apiFetch(`${API}/api/clusters/${conn.id}/groups/${encodeURIComponent(groupId)}/lag?topics=${query}`);
       if (!response.ok) throw new Error(`Lag 查询失败 (${response.status})`);
       const detail = await response.json() as LagDetail;
       if (seq !== lagSeq.current || selectedRef.current !== groupId) return;
@@ -72,7 +85,7 @@ export function GroupPage() {
     const seq = ++overviewSeq.current;
     if (!silent) setLoading(true);
     try {
-      const response = await fetch(`${API}/api/clusters/${conn.id}/groups/overview`);
+      const response = await apiFetch(`${API}/api/clusters/${conn.id}/groups/overview`);
       if (!response.ok) throw new Error(`消费组列表获取失败 (${response.status})`);
       const data = await response.json() as { groups?: GroupRow[]; listGroupsErrors?: string[] };
       if (seq !== overviewSeq.current) return;
@@ -129,6 +142,8 @@ export function GroupPage() {
   }, [auto, loadOverview]);
 
   const pick = (row: GroupRow) => {
+    setResetTopic(row.topics?.[0] || "");
+    setPreview(null); setConfirmGroup(""); setResetError(""); setResetResult(""); setResetOutcome([]);
     selectedRef.current = row.groupId;
     setSelectedId(row.groupId);
     setLag(null);
@@ -139,6 +154,37 @@ export function GroupPage() {
     } else {
       void loadLag(row.groupId, row.topics ?? []);
     }
+  };
+  const previewReset = async () => {
+    if (!selectedId || !resetTopic) return;
+    setResetBusy(true); setResetError(""); setResetResult(""); setResetOutcome([]); setPreview(null);
+    try {
+      const url = API + "/api/clusters/" + conn.id + "/groups/" + encodeURIComponent(selectedId)
+        + "/offset-reset/preview";
+      const response = await apiFetch(url, { method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({topic: resetTopic, target: resetTarget}) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "预览失败");
+      setPreview(result);
+    } catch (cause) { setResetError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setResetBusy(false); }
+  };
+  const executeReset = async () => {
+    if (!preview || !selectedId || confirmGroup !== selectedId) return;
+    setResetBusy(true); setResetError("");
+    try {
+      const url = API + "/api/clusters/" + conn.id + "/groups/" + encodeURIComponent(selectedId)
+        + "/offset-reset/execute";
+      const response = await apiFetch(url, { method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({previewToken: preview.previewToken, confirmGroupId: confirmGroup}) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "执行失败");
+      setResetResult(result.status === "done" ? "位移重置已完成并核对" : "部分分区失败或核对失败，请查看下方结果");
+      setResetOutcome(result.results || []);
+      setPreview(null); setConfirmGroup("");
+      await loadOverview();
+    } catch (cause) { setResetError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setResetBusy(false); }
   };
   const search = filter.trim().toLowerCase();
   const shown = rows.filter((row) => {
@@ -261,6 +307,44 @@ export function GroupPage() {
                       </tr>)}</tbody>
                     </table>
                   </div>{lag.uncommitted > 0 && <p className="group-lag-note">{lag.uncommitted} 个分区无提交位点，未计入合计。</p>}</>}
+            </div>
+            <div className="group-detail-section">
+              <div className="group-subhead"><h3>位移重置</h3><span>仅无活跃成员时可执行</span></div>
+              {mode === "readonly" ? <p className="ui-note">切换到全部功能后可预览与执行</p>
+                : <>
+                  <div className="flex gap-2 flex-wrap">
+                    <select className="field" value={resetTopic} onChange={(e) => {setResetTopic(e.target.value); setPreview(null);}}>
+                      <option value="">选择 Topic</option>
+                      {(selected.topics || []).map((topic) => <option key={topic} value={topic}>{topic}</option>)}
+                    </select>
+                    <select className="field" value={resetTarget} onChange={(e) => {setResetTarget(e.target.value as "earliest" | "latest"); setPreview(null);}}>
+                      <option value="latest">最新位移</option><option value="earliest">最早位移</option>
+                    </select>
+                    <button className="btn btn-ghost btn-sm" disabled={resetBusy || !resetTopic || (selected.memberCount ?? 0) > 0}
+                      onClick={() => void previewReset()}>预览影响</button>
+                  </div>
+                  {resetError && <div className="alert err mt-2">{resetError}</div>}
+                  {resetResult && <div className="alert ok mt-2">{resetResult}</div>}
+                  {resetOutcome.length > 0 && <div className="tbl-wrap group-inner-table mt-2"><table className="tbl mono">
+                    <thead><tr><th>分区</th><th>目标位移</th><th>Kafka 响应</th><th>核对</th></tr></thead>
+                    <tbody>{resetOutcome.map((row, i) => <tr key={i}><td>{row.partition ?? "—"}</td>
+                      <td>{row.target ?? "—"}</td><td>{row.error || row.errorName || row.errorCode}</td>
+                      <td>{row.verified === true ? "通过" : "未通过"}</td></tr>)}</tbody>
+                  </table></div>}
+                  {preview && <div className="mt-3">
+                    <p className="ui-note">预览有效至 {new Date(preview.expiresAt * 1000).toLocaleTimeString()}，执行前会再次检查组状态与位移。</p>
+                    <div className="tbl-wrap group-inner-table"><table className="tbl mono">
+                      <thead><tr><th>分区</th><th>当前位移</th><th>目标位移</th><th>末端位移</th></tr></thead>
+                      <tbody>{preview.rows.map((row) => <tr key={row.partition}><td>{row.partition}</td>
+                        <td>{row.current ?? "无提交"}</td><td>{row.target}</td><td>{row.end}</td></tr>)}</tbody>
+                    </table></div>
+                    <label className="lbl mt-3 block">输入消费组 ID 确认执行
+                      <input className="field mt-1" value={confirmGroup} onChange={(e) => setConfirmGroup(e.target.value)} placeholder={selectedId} />
+                    </label>
+                    <button className="btn btn-primary btn-sm mt-2" disabled={resetBusy || confirmGroup !== selectedId}
+                      onClick={() => void executeReset()}>执行位移重置</button>
+                  </div>}
+                </>}
             </div>
           </>}
         </div>

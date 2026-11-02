@@ -11,6 +11,8 @@ type Draft = {
   id?: string; name: string; bootstrap: string; securityProtocol: string;
   saslMechanism: string; saslUsername: string; saslPassword: string;
   monitoringEnabled: boolean;
+  hasSaslPassword?: boolean;
+  clearSaslPassword?: boolean;
 };
 const EMPTY: Draft = {
   name: "", bootstrap: "", securityProtocol: "PLAINTEXT",
@@ -62,7 +64,7 @@ function ClusterEditor({
               <input id="cluster-username" className={inputCls} value={draft.saslUsername}
                 onChange={(e) => onChange({ ...draft, saslUsername: e.target.value })} /></div>
             <div><label className={labelCls} htmlFor="cluster-password">密码</label>
-              <input id="cluster-password" type="password" className={inputCls} value={draft.saslPassword}
+              <input id="cluster-password" type="password" className={inputCls} value={draft.saslPassword} placeholder={draft.hasSaslPassword ? "已保存，留空保持不变" : "输入密码"}
                 onChange={(e) => onChange({ ...draft, saslPassword: e.target.value })} /></div>
           </>
         )}

@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "./http";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KafkaTraceEvent, Session, WsMessage } from "../types";
 import { authHeaders } from "../auth";
@@ -6,13 +7,13 @@ const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
 const WS = (import.meta.env.VITE_WS_BASE as string) || `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const r = await fetch(`${API}${path}`);
+  const r = await apiFetch(`${API}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
+  const r = await apiFetch(url, {
     method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
@@ -35,6 +36,7 @@ export const DEFAULT_SECURITY: SecurityForm = {
 };
 
 export interface ProduceForm extends SecurityForm {
+  clusterId?: string;
   bootstrap: string; topic: string; partition: string;
   key: string; value: string; acks: string; retries: number;
   requestTimeoutMs: number; deliveryTimeoutMs: number;
@@ -63,9 +65,12 @@ export interface ClusterStatus {
   error?: string;
 }
 
-export function clusterQuery(form: Pick<ProduceForm, "bootstrap" | "securityProtocol" | "saslMechanism" | "saslUsername" | "saslPassword">, topic: string) {
+export function clusterQuery(form: Pick<ProduceForm, "clusterId" | "bootstrap" | "securityProtocol" | "saslMechanism" | "saslUsername" | "saslPassword">, topic: string) {
+  if (form.clusterId) {
+    return "/api/cluster/status?" + new URLSearchParams({clusterId: form.clusterId, topic}).toString();
+  }
   const q = new URLSearchParams({
-    bootstrap: form.bootstrap, topic,
+    ...(form.clusterId ? { clusterId: form.clusterId } : {}), bootstrap: form.bootstrap, topic,
     securityProtocol: form.securityProtocol, saslMechanism: form.saslMechanism,
     saslUsername: form.saslUsername, saslPassword: form.saslPassword,
   });
@@ -82,7 +87,7 @@ export function useProducerSession() {
 
   const connectWs = useCallback((sid: string) => {
     wsRef.current?.close();
-    const ws = new WebSocket(`${WS}/ws/session/${sid}`);
+    const ws = apiWebSocket(`${WS}/ws/session/${sid}`);
     wsRef.current = ws;
     ws.onmessage = (m) => {
       try {
@@ -91,7 +96,7 @@ export function useProducerSession() {
         setEvents((prev) => [...prev, msg.event]);
         if (msg.type === "trace.completed" || msg.type === "trace.failed") {
           setRunning(false);
-          fetch(`${API}/api/sessions/${sid}`).then((r) => r.json()).then((s: Session) => {
+          apiFetch(`${API}/api/sessions/${sid}`).then((r) => r.json()).then((s: Session) => {
             setSession(s);
             if (s.status === "error") setSendError(s.error ?? "unknown error");
           }).catch(() => undefined);
@@ -155,6 +160,6 @@ export function useClusterStatus(form: ProduceForm, topic: string) {
     } finally {
       setLoading(false);
     }
-  }, [form.bootstrap, form.securityProtocol, form.saslMechanism, form.saslUsername, form.saslPassword, topic]);
+  }, [form.clusterId, form.bootstrap, form.securityProtocol, form.saslMechanism, form.saslUsername, form.saslPassword, topic]);
   return { data, loading, error, refresh };
 }

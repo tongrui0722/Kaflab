@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 from .nodes import broker_nodes_from_metadata
+from .secrets import encrypt_secret, decrypt_secret
 
 _DATA_DIR = os.environ.get("KCL_DATA_DIR") or os.path.join(os.path.dirname(__file__), "..", "..")
 _STORE = os.path.join(_DATA_DIR, "clusters.json")
@@ -34,7 +35,7 @@ _DEFAULTS = [
     {"id": "local-sasl", "name": "SASL_PLAINTEXT",
      "bootstrap": "192.168.127.129:19094",
      "securityProtocol": "SASL_PLAINTEXT", "saslMechanism": "PLAIN",
-     "saslUsername": "admin", "saslPassword": "admin123"},
+     "saslUsername": "admin", "saslPassword": ""},
     {"id": "local-scram", "name": "SCRAM",
      "bootstrap": "192.168.127.129:19095",
      "securityProtocol": "SASL_PLAINTEXT", "saslMechanism": "SCRAM-SHA-512",
@@ -43,7 +44,7 @@ _DEFAULTS = [
 
 
 class ClusterManager:
-    """多集群纳管：CRUD + 落盘，重启保留。口令明文存本地文件（实验工具定位）."""
+    """多集群纳管：CRUD + 加密凭据落盘，重启保留。"""
 
     def __init__(self):
         self._items: Dict[str, ClusterConfig] = {}
@@ -80,38 +81,68 @@ class ClusterManager:
 
     def _load(self) -> None:
         try:
-            if not os.path.exists(_STORE):
-                raise FileNotFoundError
-            with open(_STORE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for d in data:
+            with open(_STORE, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except FileNotFoundError:
+            data = None
+        except (OSError, ValueError) as exc:
+            raise RuntimeError("集群配置文件无法读取，请检查 clusters.json") from exc
+        if data is not None:
+            if not isinstance(data, list):
+                raise RuntimeError("集群配置文件格式错误")
+            migrated = False
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                row = dict(item)
+                encrypted = row.pop("saslPasswordEnc", None)
+                if encrypted is not None:
+                    row["saslPassword"] = decrypt_secret(encrypted)
+                elif row.get("saslPassword"):
+                    migrated = True
                 try:
-                    c = ClusterConfig(**d)
+                    config = ClusterConfig(**row)
                 except Exception:
                     continue
-                if c.id:
-                    self._items[c.id] = c
-            if self._items:
+                if config.id:
+                    self._items[config.id] = config
+            if migrated:
+                self._save()
+            if self._items or os.environ.get("KCL_DATA_DIR"):
                 return
-        except Exception:
-            pass
         if os.environ.get("KCL_DATA_DIR"):
-            # A fresh deployment starts with an empty workspace instead of
-            # persisting development-machine sample clusters and credentials.
             self._save()
             return
-        for d in _DEFAULTS:
-            c = ClusterConfig(**d, createdAt=int(time.time() * 1000))
-            self._items[c.id] = c
+        for row in _DEFAULTS:
+            config = ClusterConfig(**row, createdAt=int(time.time() * 1000))
+            self._items[config.id] = config
         self._save()
 
     def _save(self) -> None:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        rows = []
+        for config in self._items.values():
+            row = config.model_dump(exclude={"saslPassword"})
+            if config.saslPassword:
+                row["saslPasswordEnc"] = encrypt_secret(config.saslPassword)
+            rows.append(row)
+        temporary = f"{_STORE}.tmp"
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
-            with open(_STORE, "w", encoding="utf-8") as f:
-                json.dump([c.model_dump() for c in self._items.values()],
-                          f, ensure_ascii=False)
-        except OSError:
-            pass
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(rows, handle, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, _STORE)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    @staticmethod
+    def public(config: ClusterConfig) -> dict:
+        data = config.model_dump()
+        data["hasSaslPassword"] = bool(data.pop("saslPassword", ""))
+        return data
 
     def list(self) -> List[ClusterConfig]:
         return list(self._items.values())
@@ -128,7 +159,8 @@ class ClusterManager:
             securityProtocol=data.get("securityProtocol") or "PLAINTEXT",
             saslMechanism=data.get("saslMechanism") or "PLAIN",
             saslUsername=data.get("saslUsername") or "",
-            saslPassword=data.get("saslPassword") or "",
+            saslPassword=("" if data.get("clearSaslPassword") else
+                          data.get("saslPassword") or self._items.get(cid, ClusterConfig()).saslPassword),
             monitoringEnabled=data.get("monitoringEnabled", self._items[cid].monitoringEnabled if cid in self._items else True),
             createdAt=(self._items[cid].createdAt if cid in self._items else None)
             or int(time.time() * 1000),

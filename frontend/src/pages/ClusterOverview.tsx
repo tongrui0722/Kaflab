@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConn } from "../conn";
 import { authHeaders } from "../auth";
@@ -26,7 +27,7 @@ type Overview = { summary: Summary; brokers: Broker[]; brokerStats?: Broker[]; b
 type Pt = { series: string; value: number; ts: number };
 
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: authHeaders() });
+  const response = await apiFetch(url, { headers: authHeaders() });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.detail || `请求失败 (${response.status})`);
   return body as T;

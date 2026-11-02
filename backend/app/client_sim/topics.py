@@ -12,6 +12,7 @@ from .registry import RUNNERS, _python_executable
 
 
 class TopicConnection(BaseModel):
+    clusterId: str = ""
     bootstrap: str = Field(min_length=3, max_length=1024)
     securityProtocol: str = Field(default="PLAINTEXT", max_length=32)
     saslMechanism: str = Field(default="PLAIN", max_length=32)
@@ -23,7 +24,7 @@ class TopicConnection(BaseModel):
     def validate_security(self):
         if self.securityProtocol not in {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}:
             raise ValueError("不支持的安全协议")
-        if self.securityProtocol.startswith("SASL_") and (not self.saslUsername or not self.saslPassword):
+        if self.securityProtocol.startswith("SASL_") and not self.clusterId and (not self.saslUsername or not self.saslPassword):
             raise ValueError("SASL 连接需要用户名和密码")
         return self
 

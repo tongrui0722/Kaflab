@@ -13,13 +13,13 @@ def test_first_login_uses_default_or_configured_credentials(tmp_path, monkeypatc
     monkeypatch.setattr(api, "_USERS_FILE", str(users_file))
     monkeypatch.delenv("KCL_USERNAME", raising=False)
     monkeypatch.delenv("KCL_PASSWORD", raising=False)
-    assert api._load_users() == [{"username": "admin", "password": "admin"}]
+    assert api._password_matches(api._load_users()[0]["password"], "admin")
     assert asyncio.run(api.auth_login({"username": "admin", "password": "admin"}))["username"] == "admin"
 
     users_file.unlink()
     monkeypatch.setenv("KCL_USERNAME", "operator")
     monkeypatch.setenv("KCL_PASSWORD", "secret")
-    assert api._load_users() == [{"username": "operator", "password": "secret"}]
+    assert api._password_matches(api._load_users()[0]["password"], "secret")
 
 
 def test_existing_users_are_not_replaced_by_environment(tmp_path, monkeypatch):
@@ -30,7 +30,7 @@ def test_existing_users_are_not_replaced_by_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "_USERS_FILE", str(users_file))
     monkeypatch.setenv("KCL_USERNAME", "new")
     monkeypatch.setenv("KCL_PASSWORD", "new")
-    assert api._load_users() == [{"username": "saved", "password": "old"}]
+    assert api._password_matches(api._load_users()[0]["password"], "old")
     assert json.loads(users_file.read_text(encoding="utf-8"))["users"][0]["username"] == "saved"
 
 
@@ -52,12 +52,12 @@ def test_container_credentials_follow_environment_even_with_existing_data(tmp_pa
     monkeypatch.setenv("KCL_AUTH_SOURCE", "environment")
     monkeypatch.delenv("KCL_USERNAME", raising=False)
     monkeypatch.delenv("KCL_PASSWORD", raising=False)
-    assert api._load_users() == [{"username": "admin", "password": "admin"}]
+    assert api._load_users() == [{"username": "admin", "password": "admin", "role": "admin"}]
     assert asyncio.run(api.auth_login({"username": "admin", "password": "admin"}))["username"] == "admin"
     monkeypatch.setenv("KCL_USERNAME", "operator")
-    assert api._load_users() == [{"username": "operator", "password": "admin"}]
+    assert api._load_users() == [{"username": "operator", "password": "admin", "role": "admin"}]
     monkeypatch.setenv("KCL_PASSWORD", "secret")
-    assert api._load_users() == [{"username": "operator", "password": "secret"}]
+    assert api._load_users() == [{"username": "operator", "password": "secret", "role": "admin"}]
     assert asyncio.run(api.auth_login({"username": "operator", "password": "secret"}))["username"] == "operator"
     with pytest.raises(HTTPException) as error:
         asyncio.run(api.auth_login({"username": "admin", "password": "admin"}))

@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_PRODUCE, clusterQuery, type ClusterStatus, type ProduceForm } from "../api/producer";
 import { useConn } from "../conn";
@@ -20,7 +21,7 @@ async function getJSON<T>(path: string): Promise<T> {
   const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
   let r: Response;
   try {
-    r = await fetch(`${API}${path}`);
+    r = await apiFetch(`${API}${path}`);
   } catch (e) {
     throw new Error(
       `后端不可达（${API}）：请先启动 backend（uvicorn app.main:app --port 8000）。原始错误：${e instanceof Error ? e.message : String(e)}`);
@@ -39,6 +40,7 @@ export function ProducerPage() {
   const readonly = authMode === "readonly";
   const { requireLab } = useLab();
   const connFields = () => ({
+    clusterId: conn.id,
     bootstrap: conn.bootstrap,
     securityProtocol: conn.securityProtocol,
     saslMechanism: conn.saslMechanism,

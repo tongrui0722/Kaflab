@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { authHeaders, useAuth } from "../auth";
 import { useConn } from "../conn";
@@ -20,7 +21,7 @@ interface Run {
 interface LogEntry { seq: number; time: string; channel: string; source?: "system" | "adapter" | "client"; message: string; raw?: string; rawTruncated?: boolean; event?: string; partition?: number; offset?: number }
 
 async function simApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}/api/client-sim${path}`, {
+  const response = await apiFetch(`${API}/api/client-sim${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
@@ -115,6 +116,7 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
   const { mode } = useAuth();
   const { activeId, clusters, conn, loading: clustersLoading } = useConn();
   const [form, setForm] = useState(defaults);
+  const [managedClusterId, setManagedClusterId] = useState("");
   const [configOptions, setConfigOptions] = useState<ConfigOption[]>([]);
   const [configText, setConfigText] = useState("");
   const [configSchemaKey, setConfigSchemaKey] = useState("");
@@ -224,7 +226,10 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, [topicOpen]);
 
-  const update = <K extends keyof typeof defaults>(name: K, value: (typeof defaults)[K]) => setForm((previous) => ({ ...previous, [name]: value }));
+  const update = <K extends keyof typeof defaults>(name: K, value: (typeof defaults)[K]) => {
+    if (["bootstrap", "securityProtocol", "saslMechanism", "saslUsername", "saslPassword"].includes(name)) setManagedClusterId("");
+    setForm((previous) => ({ ...previous, [name]: value }));
+  };
   const editConfig = (value: string) => { configDrafts.current[wantedConfigKey] = value; setConfigText(value); };
   useEffect(() => {
     let cancelled = false;
@@ -256,14 +261,14 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
 
   const loadTopics = useCallback(async () => {
     if (!form.bootstrap.trim()) { setTopicsError("先填写 Bootstrap Servers"); return; }
-    if (form.securityProtocol.startsWith("SASL_") && (!form.saslUsername || !form.saslPassword)) {
+    if (form.securityProtocol.startsWith("SASL_") && (!form.saslUsername || (!managedClusterId && !form.saslPassword))) {
       setTopicsError("先填写 SASL 用户名和密码"); return;
     }
     const requestId = ++topicRequest.current;
     setTopicsLoading(true); setTopicsError("");
     try {
       const result = await simApi<{ topics: string[] }>("/topics/list", { method: "POST", body: JSON.stringify({
-        bootstrap: form.bootstrap.trim(), securityProtocol: form.securityProtocol,
+        clusterId: managedClusterId, bootstrap: form.bootstrap.trim(), securityProtocol: form.securityProtocol,
         saslMechanism: form.saslMechanism, saslUsername: form.saslUsername,
         saslPassword: form.saslPassword, caPath: form.caPath,
       }) });
@@ -274,7 +279,7 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
         setTopicsError(cause instanceof Error ? cause.message : String(cause));
       }
     } finally { if (requestId === topicRequest.current) setTopicsLoading(false); }
-  }, [form.bootstrap, form.securityProtocol, form.saslMechanism, form.saslUsername, form.saslPassword, form.caPath]);
+  }, [managedClusterId, form.bootstrap, form.securityProtocol, form.saslMechanism, form.saslUsername, form.saslPassword, form.caPath]);
 
   useEffect(() => {
     topicRequest.current += 1;
@@ -370,7 +375,7 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
     if (!detail) return;
     setError("");
     try {
-      const response = await fetch(`${API}/api/client-sim/runs/${detail.id}/logs/raw`, { headers: authHeaders() });
+      const response = await apiFetch(`${API}/api/client-sim/runs/${detail.id}/logs/raw`, { headers: authHeaders() });
       if (response.status === 404) throw new Error("当前后端未加载原始日志下载接口，或运行记录已失效。请重启后端并刷新页面。");
       if (!response.ok) throw new Error(`下载原始日志失败 (${response.status})`);
       const url = URL.createObjectURL(await response.blob());
@@ -387,7 +392,8 @@ export function ClientSimulatorPage({ kind }: { kind: Kind }) {
   const importCluster = () => {
     if (!hasSelectedCluster) return;
     setForm((previous) => ({ ...previous, bootstrap: conn.bootstrap, securityProtocol: conn.securityProtocol,
-      saslMechanism: conn.saslMechanism, saslUsername: conn.saslUsername, saslPassword: conn.saslPassword }));
+      saslMechanism: conn.saslMechanism, saslUsername: conn.saslUsername, saslPassword: "" }));
+    setManagedClusterId(conn.id);
   };
 
   const eventLogs = logs.filter((line) => line.source === "adapter" || line.source === "system" ||

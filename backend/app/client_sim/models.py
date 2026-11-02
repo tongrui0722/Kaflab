@@ -7,6 +7,7 @@ from .config_schema import validate_config
 
 
 class RunCreate(BaseModel):
+    clusterId: str = ""
     kind: Literal["producer", "consumer"]
     client: Literal["python", "java", "node", "go"]
     version: str
@@ -46,7 +47,7 @@ class RunCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_security(self):
-        if self.securityProtocol.startswith("SASL_") and (not self.saslUsername or not self.saslPassword):
+        if self.securityProtocol.startswith("SASL_") and not self.clusterId and (not self.saslUsername or not self.saslPassword):
             raise ValueError("SASL 连接需要用户名和密码")
         if not self.bootstrap or not self.topic:
             raise ValueError("连接地址和 Topic 不能为空")

@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConn } from "../conn";
 import { authHeaders } from "../auth";
@@ -63,7 +64,7 @@ export function ConsumerPage() {
     setTopicLoading(true);
     setTopicError(false);
     try {
-      const response = await fetch(`${API}/api/clusters/${conn.id}/topics`);
+      const response = await apiFetch(`${API}/api/clusters/${conn.id}/topics`);
       if (!response.ok) throw new Error(String(response.status));
       const data = await response.json() as { topics?: { topic: string }[] };
       if (seq !== topicRequestSeq.current) return;
@@ -87,7 +88,7 @@ export function ConsumerPage() {
     let dead = false;
     (async () => {
       try {
-        const r = await fetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(form.topic)}`);
+        const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics/${encodeURIComponent(form.topic)}`);
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json() as { partitions: { partition: number; leader: number }[] };
         if (dead) return;
@@ -141,10 +142,11 @@ export function ConsumerPage() {
     setError(null);
     setExpanded(null);
     try {
-      const r = await fetch(`${API}/api/consumer/fetch`, {
+      const r = await apiFetch(`${API}/api/consumer/fetch`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           topic, partition: form.partition, maxMessages: form.maxMessages,
+          clusterId: conn.id,
           bootstrap: conn.bootstrap,
           securityProtocol: conn.securityProtocol,
           saslMechanism: conn.saslMechanism,
@@ -157,7 +159,7 @@ export function ConsumerPage() {
       });
       if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
       const { sessionId } = await r.json() as { sessionId: string };
-      const ws = new WebSocket(`${WS}/ws/session/${sessionId}`);
+      const ws = apiWebSocket(`${WS}/ws/session/${sessionId}`);
       let completed = false;
       wsRef.current = ws;
       ws.onmessage = (m) => {

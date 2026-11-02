@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { apiFetch, apiWebSocket } from "../api/http";
+import { useEffect, useState } from "react";
 import { useConn } from "../conn";
 import { useAuth, authHeaders } from "../auth";
 import { PageHeader } from "../components/bits";
@@ -23,6 +24,10 @@ export function TopicsPage() {
   const { mode } = useAuth();
   const readonly = mode === "readonly";
   const [rows, setRows] = useState<TopicRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalTopics, setTotalTopics] = useState(0);
+  const [summary, setSummary] = useState({partitions: 0, offline: 0, underReplicated: 0});
+  const [sampledAt, setSampledAt] = useState<number | null>(null);
   const [brokerCount, setBrokerCount] = useState(3);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -44,28 +49,31 @@ export function TopicsPage() {
   const [cErr, setCErr] = useState<string | null>(null);
   const [cSuccess, setCSuccess] = useState<string | null>(null);
 
-  const load = async (cid: string): Promise<TopicRow[] | null> => {
+  const load = async (cid: string, force = false): Promise<TopicRow[] | null> => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`${API}/api/clusters/${cid}/topics`, { headers: authHeaders() });
-      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-      const d = await r.json() as { topics: TopicRow[]; brokers: { id?: number }[] };
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize), q,
+        status: healthFilter, sort: sortKey, asc: String(sortAsc), refresh: String(force) });
+      const r = await apiFetch(API + "/api/clusters/" + cid + "/topics/page?" + params);
+      if (!r.ok) throw new Error(String(r.status) + " " + await r.text());
+      const d = await r.json() as { topics: TopicRow[]; total: number; totalTopics: number;
+        sampledAt: number; summary: {partitions: number; offline: number; underReplicated: number};
+        brokers: {id?: number}[] };
       setRows(d.topics);
-      if (d.brokers) {
-        setBrokerCount(d.brokers.length);
-        setCRf((v) => Math.min(v, Math.max(d.brokers.length, 1)));
-      }
+      setTotal(d.total); setTotalTopics(d.totalTopics); setSummary(d.summary);
+      setSampledAt(d.sampledAt);
+      setBrokerCount(d.brokers.length);
+      setCRf((v) => Math.min(v, Math.max(d.brokers.length, 1)));
       return d.topics;
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       return null;
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => { void load(conn.id); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conn.id]);
+  useEffect(() => { void load(conn.id); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
+    [conn.id, page, pageSize, q, healthFilter, sortKey, sortAsc]);
   useEffect(() => { setPage(1); }, [q, healthFilter, pageSize, conn.id]);
 
   const createTopic = async () => {
@@ -110,7 +118,7 @@ export function TopicsPage() {
     setCSuccess(null);
     let responseStatus: number | null = null;
     try {
-      const r = await fetch(`${API}/api/clusters/${conn.id}/topics`, {
+      const r = await apiFetch(`${API}/api/clusters/${conn.id}/topics`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ name, partitions: cParts, replicationFactor: cRf, configs }),
       });
@@ -134,8 +142,18 @@ export function TopicsPage() {
         } catch { setCErr(raw); }
         return;
       }
-      const refreshed = await load(conn.id);
-      if (refreshed?.some((row) => row.topic === name)) {
+      await load(conn.id, true);
+      let confirmed = false;
+      try {
+        const checkParams = new URLSearchParams({page: "1", size: "20", q: name,
+          status: "all", sort: "topic", asc: "true", refresh: "false"});
+        const check = await apiFetch(API + "/api/clusters/" + conn.id + "/topics/page?" + checkParams);
+        if (check.ok) {
+          const result = await check.json() as {topics: TopicRow[]};
+          confirmed = result.topics.some((row) => row.topic === name);
+        }
+      } catch { /* Keep the original error when confirmation is unavailable. */ }
+      if (confirmed) {
         setShowCreate(false);
         setCName("");
         setCRetentionMs("");
@@ -161,32 +179,12 @@ export function TopicsPage() {
     }
   };
 
-  const filtered = useMemo(() => {
-    const search = q.trim().toLocaleLowerCase();
-    const matches = rows.filter((row) => {
-      if (search && !row.topic.toLocaleLowerCase().includes(search)) return false;
-      if (healthFilter === "healthy" && (row.hasOffline || row.hasUnderReplicated)) return false;
-      if (healthFilter === "offline" && !row.hasOffline) return false;
-      if (healthFilter === "under-replicated" && (row.hasOffline || !row.hasUnderReplicated)) return false;
-      return true;
-    });
-    const healthRank = (row: TopicRow) => row.hasOffline ? 2 : row.hasUnderReplicated ? 1 : 0;
-    matches.sort((a, b) => {
-      const value = sortKey === "topic" ? a.topic.localeCompare(b.topic)
-        : sortKey === "partitions" ? a.partitions - b.partitions
-          : sortKey === "replication" ? a.replication - b.replication
-            : healthRank(a) - healthRank(b);
-      return sortAsc ? value : -value;
-    });
-    return matches;
-  }, [rows, q, healthFilter, sortKey, sortAsc]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const offlineCount = rows.filter((row) => row.hasOffline).length;
-  const underReplicatedCount = rows.filter((row) => row.hasUnderReplicated).length;
-  const partitionCount = rows.reduce((sum, row) => sum + row.partitions, 0);
+  const pageRows = rows;
+  const offlineCount = summary.offline;
+  const underReplicatedCount = summary.underReplicated;
+  const partitionCount = summary.partitions;
 
   const sort = (key: SortKey) => {
     if (sortKey === key) setSortAsc((asc) => !asc);
@@ -200,7 +198,7 @@ export function TopicsPage() {
       <PageHeader title="Topics"
         right={
           <>
-            <button onClick={() => void load(conn.id)} disabled={loading} className="btn btn-ghost btn-sm">
+            <button onClick={() => void load(conn.id, true)} disabled={loading} className="btn btn-ghost btn-sm">
               {loading ? "刷新中…" : "刷新"}
             </button>
             <button onClick={() => { if (readonly) return; setShowCreate((v) => !v); setCErr(null); setCSuccess(null); }}
@@ -211,12 +209,12 @@ export function TopicsPage() {
 
       {cSuccess && <div className="alert ok mb-3">{cSuccess}</div>}
       {err && <div className="alert err mb-3 flex items-center gap-3">加载失败：{err}
-        <button onClick={() => void load(conn.id)} className="btn btn-ghost btn-sm ml-auto">重试</button>
+        <button onClick={() => void load(conn.id, true)} className="btn btn-ghost btn-sm ml-auto">重试</button>
       </div>}
 
       <div className="mb-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {[
-          ["Topics", rows.length, "sky"],
+          ["Topics", totalTopics, "sky"],
           ["分区", partitionCount, "violet"],
           ["离线 Topic", offlineCount, offlineCount ? "rose" : "emerald"],
           ["ISR 不足", underReplicatedCount, underReplicatedCount ? "amber" : "blue"],
@@ -295,7 +293,8 @@ export function TopicsPage() {
         <div className="topic-list-toolbar">
           <div className="topic-section-heading">
             <h2>Topic 列表</h2>
-            <span className="badge mute">{filtered.length} / {rows.length}</span>
+            {sampledAt && <span className="ui-note">采样于 {new Date(sampledAt * 1000).toLocaleTimeString()} · 缓存最多 30 秒</span>}
+            <span className="badge mute">{total} / {totalTopics}</span>
           </div>
           <div className="topic-list-filters">
           <label className="sr-only" htmlFor="topic-search">搜索 Topic</label>
@@ -316,10 +315,10 @@ export function TopicsPage() {
           <div className="py-14 text-center text-[12px] text-slate-500">正在读取 Kafka Metadata…</div>
         ) : err ? (
           <div className="py-10 text-center text-[12px] text-slate-500">暂时无法加载 Topic 列表。</div>
-        ) : filtered.length === 0 ? (
+        ) : total === 0 ? (
           <div className="py-14 text-center">
-            <div className="text-[13px] font-semibold text-slate-700">{rows.length ? "没有匹配的 Topic" : "当前集群还没有 Topic"}</div>
-            <div className="mt-1 text-[11px] text-[var(--text-faint)]">{rows.length ? "试试调整搜索词或健康状态筛选。" : "可以通过右上角创建第一个 Topic。"}</div>
+            <div className="text-[13px] font-semibold text-slate-700">{totalTopics ? "没有匹配的 Topic" : "当前集群还没有 Topic"}</div>
+            <div className="mt-1 text-[11px] text-[var(--text-faint)]">{totalTopics ? "试试调整搜索词或健康状态筛选。" : "可以通过右上角创建第一个 Topic。"}</div>
           </div>
         ) : (
           <>
@@ -363,7 +362,7 @@ export function TopicsPage() {
             </div>
             <div className="topic-pagination">
               <span className="text-[11px] text-[var(--text-faint)]">
-                显示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} / {filtered.length}
+                显示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, total)} / {total}
               </span>
               <div className="flex items-center gap-2">
                 <label className="text-[11px] text-[var(--text-faint)]" htmlFor="topic-page-size">每页</label>

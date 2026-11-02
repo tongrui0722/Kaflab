@@ -5,11 +5,12 @@ import { useAuth } from "../auth";
 import { useLab } from "../lab";
 import { reportConn } from "../App";
 
-type ShellIconName = "overview" | "topics" | "producer" | "consumer" | "groups" | "loadtest" |
-  "sim-producer" | "sim-consumer" | "clusters" | "refresh" | "logout" | "chevron" | "menu";
+type ShellIconName = "monitoring" | "overview" | "topics" | "producer" | "consumer" | "groups" | "loadtest" |
+  "sim-producer" | "sim-consumer" | "operations" | "clusters" | "refresh" | "logout" | "chevron" | "menu";
 
 function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
+    monitoring: <><path d="M3 12h4l2-5 4 10 2-5h6" /></>,
     overview: <><rect x="3" y="3" width="7" height="7" rx="1.3" /><rect x="14" y="3" width="7" height="7" rx="1.3" /><rect x="3" y="14" width="7" height="7" rx="1.3" /><rect x="14" y="14" width="7" height="7" rx="1.3" /></>,
     topics: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16M4 14h16" /></>,
     producer: <><path d="M5 19 19 5M10 5h9v9" /><path d="M5 8v4" /></>,
@@ -18,6 +19,7 @@ function ShellIcon({ name }: { name: ShellIconName }) {
     loadtest: <path d="M3 12h4l2.5-6 4 12 2.5-6H21" />,
     "sim-producer": <><rect x="3" y="5" width="11" height="14" rx="2" /><path d="M6 9h5M6 12h5M18 8l3 4-3 4m-3-4h6" /></>,
     "sim-consumer": <><path d="M3 8h6m-3-3 3 3-3 3" /><rect x="10" y="5" width="11" height="14" rx="2" /><path d="M13 9h5m-5 3h5m-5 3h4" /></>,
+    operations: <><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></>,
     clusters: <><rect x="3" y="3" width="7" height="7" rx="1.3" /><rect x="14" y="3" width="7" height="7" rx="1.3" /><rect x="3" y="14" width="7" height="7" rx="1.3" /><rect x="14" y="14" width="7" height="7" rx="1.3" /></>,
     refresh: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.5 9A7 7 0 0 1 18 7l2 5M4 12l2 5a7 7 0 0 0 12.5-2" /></>,
     logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" /><path d="M14 8l4 4-4 4m-8-4h12" /></>,
@@ -27,12 +29,12 @@ function ShellIcon({ name }: { name: ShellIconName }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
-const GLOBAL_NAV: [string, string, ShellIconName][] = [["集群总览", "/dashboard", "overview"]];
+const GLOBAL_NAV: [string, string, ShellIconName][] = [["集群总览", "/dashboard", "overview"], ["监控与告警", "/monitoring", "monitoring"]];
 const CLUSTER_NAV: [string, string, ShellIconName][] = [
   ["Topics", "/topics", "topics"], ["Producer", "/producer", "producer"], ["Consumer", "/consumer", "consumer"],
   ["消费组", "/group", "groups"],
 ];
-const TOOL_NAV: [string, string, ShellIconName][] = [["生产端模拟", "/sim/producer", "sim-producer"], ["消费端模拟", "/sim/consumer", "sim-consumer"], ["压测", "/loadtest", "loadtest"]];
+const TOOL_NAV: [string, string, ShellIconName][] = [["生产端模拟", "/sim/producer", "sim-producer"], ["消费端模拟", "/sim/consumer", "sim-consumer"], ["压测", "/loadtest", "loadtest"], ["后台操作", "/operations", "operations"]];
 
 function NavLink({ label, to, icon, active, disabled = false, onNavigate }: { label: string; to: string; icon: ShellIconName; active: boolean; disabled?: boolean; onNavigate?: () => void }) {
   const className = `shell-nav-link${active ? " is-active" : ""}${disabled ? " is-disabled" : ""}`;
@@ -149,7 +151,7 @@ export function Shell({ children, status }: { children: ReactNode; status?: Reac
       <div className="sidebar-workspace"><span className="eyebrow">工作空间</span><ClusterSwitcher /></div>
       <nav className="sidebar-nav">
         <div className="nav-section-label">概览</div>
-        {GLOBAL_NAV.map(([label,path,icon]) => <NavLink key={path} label={label} to={path} icon={icon} active={isActive(path)} disabled={path === "/dashboard" && !hasCluster} onNavigate={() => setNavOpen(false)} />)}
+        {GLOBAL_NAV.map(([label,path,icon]) => <NavLink key={path} label={label} to={path} icon={icon} active={isActive(path)} disabled={!hasCluster} onNavigate={() => setNavOpen(false)} />)}
         <div className="nav-section-label nav-section-spaced">数据工作台</div>
         {clusterNav.map(([label,path,icon]) => <NavLink key={path} label={label} to={path} icon={icon} active={isActive(path)} disabled={!hasCluster} onNavigate={() => setNavOpen(false)} />)}
         <div className="nav-section-label nav-section-spaced">工具</div>

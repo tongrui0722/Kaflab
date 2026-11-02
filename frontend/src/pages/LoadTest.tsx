@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useEffect, useRef, useState } from "react";
 import { useConn } from "../conn";
 import { authHeaders, useAuth } from "../auth";
@@ -31,6 +32,7 @@ export function LoadTestPage() {
   const readonly = authMode === "readonly";
   const { requireLab } = useLab();
   const [bootstrap, setBootstrap] = useState("");
+  const [managedClusterId, setManagedClusterId] = useState("");
   const [security, setSecurity] = useState<LoadSecurity>(DEFAULT_SECURITY);
   const [caPath, setCaPath] = useState("");
   const [topic, setTopic] = useState("");
@@ -46,11 +48,14 @@ export function LoadTestPage() {
   const [starting, setStarting] = useState(false);
   const timer = useRef<number | null>(null);
   const hasSelectedCluster = Boolean(activeId && clusters.some((cluster) => cluster.id === activeId));
-  const updateSecurity = <K extends keyof LoadSecurity>(key: K, value: LoadSecurity[K]) =>
+  const updateSecurity = <K extends keyof LoadSecurity>(key: K, value: LoadSecurity[K]) => {
+    setManagedClusterId("");
     setSecurity((previous) => ({ ...previous, [key]: value }));
+  };
   const importCluster = () => {
     if (!hasSelectedCluster) return;
     setBootstrap(conn.bootstrap);
+    setManagedClusterId(conn.id);
     setSecurity({
       securityProtocol: conn.securityProtocol,
       saslMechanism: conn.saslMechanism,
@@ -67,17 +72,17 @@ export function LoadTestPage() {
     setErr(null);
     if (!bootstrap.trim()) { setErr("请填写 Bootstrap Servers，或从当前工作空间带入连接配置。"); return; }
     if (!topic.trim()) { setErr("请填写压测 Topic。"); return; }
-    if (security.securityProtocol.startsWith("SASL_") && (!security.saslUsername.trim() || !security.saslPassword)) {
+    if (security.securityProtocol.startsWith("SASL_") && (!security.saslUsername.trim() || (!managedClusterId && !security.saslPassword))) {
       setErr("SASL 连接需要填写用户名和密码。"); return;
     }
     setJob(null);
     setReport(null);
     setStarting(true);
     try {
-      const r = await fetch(`${API}/api/loadtest/run`, {
+      const r = await apiFetch(`${API}/api/loadtest/run`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
-          bootstrap: bootstrap.trim(), topic: topic.trim(),
+          clusterId: managedClusterId, bootstrap: bootstrap.trim(), topic: topic.trim(),
           partition: "auto", acks: "all", retries: 1,
           requestTimeoutMs: 10000, deliveryTimeoutMs: 30000,
           mode, total, durationSec, concurrency, valueSize,
@@ -93,13 +98,13 @@ export function LoadTestPage() {
       stop();
       timer.current = window.setInterval(async () => {
         try {
-          const s = await (await fetch(`${API}/api/loadtest/${jobId}`)).json() as Job;
+          const s = await (await apiFetch(`${API}/api/loadtest/${jobId}`)).json() as Job;
           setJob(s);
           if (s.status === "done" || s.status === "failed") {
             stop();
             if (s.status === "done") {
               try {
-                const rep = await (await fetch(`${API}/api/loadtest/${jobId}/report`)).json() as { markdown: string };
+                const rep = await (await apiFetch(`${API}/api/loadtest/${jobId}/report`)).json() as { markdown: string };
                 setReport(rep.markdown);
               } catch { /* 报告拉取失败不阻塞结果展示 */ }
             }
@@ -167,7 +172,7 @@ export function LoadTestPage() {
             <div className="sim-section-head"><h2>连接目标</h2><span>01 / TARGET</span></div>
             {!clustersLoading && !hasSelectedCluster && <div className="sim-target-hint" role="status"><span className="sim-target-hint-dot" />未选集群，请手动填写连接地址和 Topic</div>}
             <div className="loadtest-field"><label className={labelCls} htmlFor="loadtest-bootstrap">Bootstrap Servers</label>
-              <input id="loadtest-bootstrap" className={inputCls} value={bootstrap} onChange={(e) => setBootstrap(e.target.value)} placeholder="broker1:9092,broker2:9092" />
+              <input id="loadtest-bootstrap" className={inputCls} value={bootstrap} onChange={(e) => { setManagedClusterId(""); setBootstrap(e.target.value); }} placeholder="broker1:9092,broker2:9092" />
               {hasSelectedCluster && <div className="loadtest-import-row"><button type="button" className="sim-inline-action" onClick={importCluster}>从当前工作空间带入连接配置 ↗</button></div>}
             </div>
             <div className="loadtest-field"><label className={labelCls} htmlFor="loadtest-topic">Topic</label>

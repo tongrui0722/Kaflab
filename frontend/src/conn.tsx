@@ -7,6 +7,7 @@ export interface ConnConfig extends SecurityForm {
   name: string;
   bootstrap: string;
   monitoringEnabled?: boolean;
+  hasSaslPassword?: boolean;
 }
 
 export interface ClusterHealth {
@@ -69,7 +70,7 @@ export function ConnProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const list = await api<ConnConfig[]>("/api/clusters");
-      setClusters(list);
+      setClusters(list.map((item) => ({ ...item, saslPassword: "" })));
       setActiveId((cur) => {
         if (cur && list.some((c) => c.id === cur)) return cur;
         try { sessionStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ }
@@ -91,6 +92,7 @@ export function ConnProvider({ children }: { children: ReactNode }) {
     const saved = await api<ConnConfig>("/api/clusters", {
       method: "POST", body: JSON.stringify(c),
     });
+    saved.saslPassword = "";
     setClusters((prev) => {
       const i = prev.findIndex((x) => x.id === saved.id);
       if (i >= 0) { const n = [...prev]; n[i] = saved; return n; }

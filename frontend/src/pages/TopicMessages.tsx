@@ -1,3 +1,4 @@
+import { apiFetch, apiWebSocket } from "../api/http";
 import { useEffect, useRef, useState } from "react";
 
 const API = (import.meta.env.VITE_API_BASE as string) || window.location.origin;
@@ -94,7 +95,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
     else setMoreBusy(true);
     setErr(null);
     try {
-      const r = await fetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(append ? nextOffsets : null)}`);
+      const r = await apiFetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(append ? nextOffsets : null)}`);
       if (!r.ok) throw new Error(await r.text());
       const d = await r.json() as BrowseResult;
       setMsgs((p) => append ? [...p, ...d.messages].slice(-LIVE_CAP) : d.messages);
@@ -114,7 +115,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
 
   const pollLive = async () => {
     try {
-      const r = await fetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(liveCursor.current, 200)}`);
+      const r = await apiFetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(liveCursor.current, 200)}`);
       if (!r.ok) return;
       const d = await r.json() as BrowseResult;
       if (d.messages.length > 0) {
@@ -131,7 +132,7 @@ export function TopicMessages({ cid, topic, partitions }: { cid: string; topic: 
     setErr(null);
     setEmptyNote("等待消息…");
     try {
-      const r = await fetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(null, 50)}`);
+      const r = await apiFetch(`${API}/api/clusters/${cid}/topics/${encodeURIComponent(topic)}/messages?${buildQuery(null, 50)}`);
       if (!r.ok) throw new Error(await r.text());
       const d = await r.json() as BrowseResult;
       setMsgs(d.messages.slice(-LIVE_CAP));

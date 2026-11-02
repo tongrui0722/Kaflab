@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from .permissions import _need_lab
+from .connection import managed_fields
 
 router = APIRouter()
 
@@ -55,6 +56,8 @@ async def loadtest_run(body: dict, background: BackgroundTasks, request: Request
         "mode": mode, "total": total, "durationSec": duration_sec,
         "concurrency": conc, "valueSize": value_size,
     }
+    if body.get("clusterId"):
+        payload.update(managed_fields(request, str(body["clusterId"])))
     background.add_task(_load_worker, job_id, request, payload)
     return {"jobId": job_id, "total": total if mode == "count" else None}
 
